@@ -1,0 +1,51 @@
+name: gst-sahayak
+version: 1.0.0
+description: >
+  RL environment for Indian GST compliance automation.
+  An AI agent learns to classify invoices, reconcile ITC,
+  and file GSTR-3B returns — replacing manual accountant workflows
+  for India's 63 million MSMEs.
+author: GST Sahayak Team
+tags:
+  - openenv
+  - india
+  - tax
+  - compliance
+  - finance
+  - real-world
+
+tasks:
+  - id: invoice_classifier
+    description: Classify invoices by type (B2B/B2C/EXPORT/EXEMPT) and assign HSN codes
+    difficulty: easy
+    max_steps: 20
+    reward_threshold: 0.8
+
+  - id: itc_reconciliation
+    description: Accept or reject ITC claims against GSTR-2B portal mismatches
+    difficulty: medium
+    max_steps: 35
+    reward_threshold: 0.7
+
+  - id: full_gstr3b_filing
+    description: Full multi-step episode — classify, reconcile, compute liability, and file GSTR-3B
+    difficulty: hard
+    max_steps: 60
+    reward_threshold: 0.6
+
+observation_space:
+  type: GSTObservation
+  description: Invoice batch, GSTR-2B portal data, running ITC, tax liability, and filing status
+
+action_space:
+  type: GSTAction
+  actions:
+    - classify_invoice
+    - accept_itc
+    - reject_itc
+    - flag_for_review
+    - compute_liability
+    - file_return
+
+entry_point: server.app:app
+inference_script: inference.py
