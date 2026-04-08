@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>GST Sahayak — RL Environment</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    header {
+      background: linear-gradient(135deg, #1a1f2e, #0d6efd22);
+      border-bottom: 1px solid #2a2f3e;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header h1 { font-size: 1.4rem; color: #fff; }
+    header span { font-size: 0.85rem; color: #6c757d; }
+    .badge {
+      background: #0d6efd22;
+      border: 1px solid #0d6efd66;
+      color: #4da3ff;
+      border-radius: 20px;
+      padding: 2px 12px;
+      font-size: 0.78rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 0;
+      height: calc(100vh - 61px);
+    }
+
+    .sidebar {
+      background: #161b27;
+      border-right: 1px solid #2a2f3e;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .main {
+      padding: 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card {
+      background: #1a1f2e;
+      border: 1px solid #2a2f3e;
+      border-radius: 10px;
+      padding: 16px;
+    }
+
+    .card h3 {
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6c757d;
+      margin-bottom: 12px;
+    }
+
+    label { font-size: 0.85rem; color: #adb5bd; display: block; margin-bottom: 6px; }
+
+    select, input {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid #2a2f3e;
+      border-radius: 6px;
+      color: #e0e0e0;
+      padding: 8px 10px;
+      font-size: 0.9rem;
+      outline: none;
+      margin-bottom: 12px;
+    }
+    select:focus, input:focus { border-color: #0d6efd; }
+
+    button {
+      width: 100%;
+      padding: 9px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background: #0d6efd; color: #fff; }
+    .btn-success { background: #198754; color: #fff; }
+    .btn-danger  { background: #dc3545; color: #fff; }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #2a2f3e;
+      color: #adb5bd;
+      margin-top: 6px;
+    }
+
+    .stat-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
+
+    .stat {
+      background: #0f1117;
+      border: 1px solid #2a2f3e;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .stat .label { font-size: 0.75rem; color: #6c757d; }
+    .stat .value { font-size: 1.1rem; font-weight: 700; color: #fff; margin-top: 2px; }
+    .stat .value.green { color: #20c997; }
+    .stat .value.red   { color: #f06595; }
+    .stat .value.blue  { color: #4da3ff; }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .status-bar.running { background: #198754; color: #fff; }
+    .status-bar.idle    { background: #2a2f3e; color: #adb5bd; }
+    .status-bar.done    { background: #0d6efd; color: #fff; }
+    .status-bar.error   { background: #dc3545; color: #fff; }
+
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+    }
+
+    .invoice-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+
+    .invoice-item {
+      background: #0f1117;
+      border: 1px solid #2a2f3e;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 0.82rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 6px;
+      align-items: start;
+    }
+    .invoice-item.pending { border-left: 3px solid #ffc107; }
+    .invoice-item.done    { border-left: 3px solid #20c997; opacity: 0.6; }
+    .invoice-item.mismatch { border-left: 3px solid #f06595; }
+
+    .inv-id   { color: #4da3ff; font-weight: 600; font-size: 0.8rem; }
+    .inv-type { font-size: 0.75rem; color: #20c997; }
+    .inv-val  { color: #fff; font-weight: 600; }
+    .inv-tax  { font-size: 0.75rem; color: #adb5bd; }
+    .mismatch-badge {
+      background: #f0659520;
+      border: 1px solid #f0659566;
+      color: #f06595;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 0.72rem;
+    }
+
+    .step-log {
+      max-height: 260px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .step-item {
+      background: #0f1117;
+      border: 1px solid #2a2f3e;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      display: grid;
+      grid-template-columns: 40px 1fr auto;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-num { color: #6c757d; font-weight: 600; }
+    .step-action { color: #e0e0e0; }
+    .step-action span { color: #4da3ff; }
+    .step-reward.pos { color: #20c997; font-weight: 700; }
+    .step-reward.neg { color: #f06595; font-weight: 700; }
+    .step-reward.zero { color: #6c757d; font-weight: 700; }
+
+    .reward-bar-wrap {
+      background: #0f1117;
+      border-radius: 4px;
+      height: 6px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .reward-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #0d6efd, #20c997);
+      transition: width 0.4s ease;
+      border-radius: 4px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      cursor: pointer;
+      border: 1px solid #2a2f3e;
+      background: transparent;
+      color: #6c757d;
+      width: auto;
+      font-weight: 500;
+    }
+    .tab.active {
+      background: #0d6efd22;
+      border-color: #0d6efd66;
+      color: #4da3ff;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    pre {
+      background: #0f1117;
+      border: 1px solid #2a2f3e;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 0.78rem;
+      overflow-x: auto;
+      color: #a8ff78;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #6c757d;
+      padding: 32px 0;
+      font-size: 0.88rem;
+    }
+
+    .progress-wrap {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+      color: #adb5bd;
+    }
+    .progress-bg {
+      flex: 1;
+      background: #0f1117;
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #0d6efd;
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: #0f1117; }
+    ::-webkit-scrollbar-thumb { background: #2a2f3e; border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>GST Sahayak</h1>
+    <span>RL Environment — Meta OpenEnv Hackathon</span>
+  </div>
+  <div class="badge">openenv</div>
+  <div class="badge" id="api-status">API: checking...</div>
+</header>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <div class="card">
+      <h3>Episode Setup</h3>
+      <label>Task</label>
+      <select id="task-select">
+        <option value="invoice_classifier">Task 1 — Invoice Classifier (Easy)</option>
+        <option value="itc_reconciliation">Task 2 — ITC Reconciliation (Medium)</option>
+        <option value="full_gstr3b_filing">Task 3 — Full GSTR-3B Filing (Hard)</option>
+      </select>
+      <button class="btn-primary" id="reset-btn" onclick="resetEpisode()">Reset / New Episode</button>
+      <button class="btn-outline" onclick="runAutoStep()" id="auto-btn" disabled>Auto Step (LLM)</button>
+    </div>
+
+    <div class="card">
+      <h3>Episode Stats</h3>
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">Step</div>
+          <div class="value blue" id="stat-step">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Max Steps</div>
+          <div class="value" id="stat-maxsteps">—</div>
+        </div>
+      </div>
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">Cum. Reward</div>
+          <div class="value green" id="stat-reward">—</div>
+        </div>
+        <div class="stat">
+          <div class="label">Pending</div>
+          <div class="value" id="stat-pending">—</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;">
+        <div class="progress-wrap">
+          <span id="prog-label">Progress</span>
+          <div class="progress-bg">
+            <div class="progress-fill" id="prog-fill" style="width:0%"></div>
+          </div>
+          <span id="prog-pct">0%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Context</h3>
+      <div style="font-size:0.83rem; color:#adb5bd; line-height:1.7;">
+        <div>Context: <span id="ctx-episode" style="color:#4da3ff">—</span></div>
+        <div>Filing: <span id="ctx-filing" style="color:#20c997">—</span></div>
+        <div>ITC: <span id="ctx-itc" style="color:#fff">—</span></div>
+        <div>Liability: <span id="ctx-liability" style="color:#fff">—</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Manual Action</h3>
+      <label>Action Type</label>
+      <select id="action-type">
+        <option value="classify_invoice">classify_invoice</option>
+        <option value="accept_itc">accept_itc</option>
+        <option value="reject_itc">reject_itc</option>
+        <option value="flag_for_review">flag_for_review</option>
+        <option value="compute_liability">compute_liability</option>
+        <option value="file_return">file_return</option>
+      </select>
+      <label>Invoice ID</label>
+      <input type="text" id="action-inv-id" placeholder="e.g. INV-0042-000" />
+      <label>Invoice Type</label>
+      <select id="action-inv-type">
+        <option value="">— select —</option>
+        <option>B2B</option><option>B2C</option>
+        <option>EXPORT</option><option>EXEMPT</option>
+      </select>
+      <label>HSN Code</label>
+      <input type="text" id="action-hsn" placeholder="e.g. 8471" />
+      <button class="btn-success" onclick="sendManualAction()" id="step-btn" disabled>Send Action</button>
+    </div>
+
+  </div>
+
+  <!-- MAIN PANEL -->
+  <div class="main">
+
+    <div id="status-bar" class="status-bar idle">
+      <span class="dot"></span> Ready — click Reset to start an episode
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('invoices')">Invoices</button>
+      <button class="tab" onclick="switchTab('gstr2b')">GSTR-2B</button>
+      <button class="tab" onclick="switchTab('log')">Step Log</button>
+      <button class="tab" onclick="switchTab('raw')">Raw JSON</button>
+    </div>
+
+    <!-- INVOICES TAB -->
+    <div id="tab-invoices" class="tab-content active">
+      <div class="card">
+        <h3>Current Invoices</h3>
+        <div class="invoice-grid" id="invoice-list">
+          <div class="empty-state">No episode loaded. Click Reset to begin.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- GSTR-2B TAB -->
+    <div id="tab-gstr2b" class="tab-content">
+      <div class="card">
+        <h3>GSTR-2B Portal Data</h3>
+        <div class="invoice-grid" id="gstr2b-list">
+          <div class="empty-state">No episode loaded.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP LOG TAB -->
+    <div id="tab-log" class="tab-content">
+      <div class="card">
+        <h3>Step Log</h3>
+        <div class="step-log" id="step-log">
+          <div class="empty-state">No steps yet.</div>
+        </div>
+        <div style="margin-top:12px;">
+          <div class="reward-bar-wrap">
+            <div class="reward-bar" id="reward-bar" style="width:0%"></div>
+          </div>
+          <div style="font-size:0.75rem; color:#6c757d; margin-top:4px;" id="reward-bar-label">Cumulative reward progress</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RAW JSON TAB -->
+    <div id="tab-raw" class="tab-content">
+      <div class="card">
+        <h3>Raw Observation JSON</h3>
+        <pre id="raw-json">// No observation yet</pre>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const API = '';   // same origin
+  let currentObs = null;
+  let cumulativeReward = 0;
+  let stepCount = 0;
+  let stepLog = [];
+  let episodeActive = false;
+  let currentTask = 'invoice_classifier';
+  let pendingSet = new Set();
+
+  // ---- API health check ----
+  async function checkHealth() {
+    try {
+      const r = await fetch(API + '/health');
+      const d = await r.json();
+      document.getElementById('api-status').textContent = 'API: online';
+      document.getElementById('api-status').style.color = '#20c997';
+    } catch(e) {
+      document.getElementById('api-status').textContent = 'API: offline';
+      document.getElementById('api-status').style.color = '#f06595';
+    }
+  }
+
+  // ---- Reset episode ----
+  async function resetEpisode() {
+    currentTask = document.getElementById('task-select').value;
+    setStatus('running', 'Resetting episode...');
+    cumulativeReward = 0;
+    stepCount = 0;
+    stepLog = [];
+    pendingSet = new Set();
+    document.getElementById('step-log').innerHTML = '<div class="empty-state">No steps yet.</div>';
+    document.getElementById('reward-bar').style.width = '0%';
+
+    try {
+      const r = await fetch(API + '/reset', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ task: currentTask })
+      });
+      const data = await r.json();
+      currentObs = data.observation || data;
+      episodeActive = true;
+
+      // Set pending IDs
+      if (currentObs.pending_actions) {
+        currentObs.pending_actions.forEach(id => pendingSet.add(id));
+        if (currentObs.pending_actions.length > 0) {
+          document.getElementById('action-inv-id').value = currentObs.pending_actions[0];
+        }
+      }
+
+      updateUI();
+      setStatus('running', `Episode started — Task: ${currentTask}`);
+      document.getElementById('step-btn').disabled = false;
+      document.getElementById('auto-btn').disabled = false;
+    } catch(e) {
+      setStatus('error', 'Reset failed: ' + e.message);
+    }
+  }
+
+  // ---- Send manual action ----
+  async function sendManualAction() {
+    if (!episodeActive) return;
+
+    const action = {
+      action_type: document.getElementById('action-type').value,
+      invoice_id:  document.getElementById('action-inv-id').value || null,
+      invoice_type: document.getElementById('action-inv-type').value || null,
+      hsn_code:    document.getElementById('action-hsn').value || null,
+      gstr_payload: null,
+    };
+
+    await doStep(action);
+  }
+
+  // ---- Auto step: pick next pending action intelligently ----
+  async function runAutoStep() {
+    if (!episodeActive || !currentObs) return;
+
+    const pending = currentObs.pending_actions || [];
+    if (pending.length === 0) {
+      if (currentTask === 'full_gstr3b_filing') {
+        // compute liability then file
+        await doStep({ action_type: 'compute_liability', invoice_id: null,
+                       invoice_type: null, hsn_code: null, gstr_payload: null });
+        return;
+      }
+      return;
+    }
+
+    const invId = pending[0];
+    const gstr2b = currentObs.gstr_2b || [];
+    const match = gstr2b.find(r => r.invoice_id === invId);
+
+    let action = {};
+
+    if (currentTask === 'invoice_classifier') {
+      // Simple heuristic: infer type from tax structure
+      const inv = (currentObs.invoices || []).find(i => i.invoice_id === invId) || {};
+      const invType = inferType(inv);
+      action = { action_type: 'classify_invoice', invoice_id: invId,
+                 invoice_type: invType, hsn_code: pickHSN(invType),
+                 gstr_payload: null };
+
+    } else if (currentTask === 'itc_reconciliation') {
+      if (match && match.mismatch) {
+        const reason = match.mismatch_reason;
+        const atype = (reason === 'value_mismatch') ? 'flag_for_review' : 'reject_itc';
+        action = { action_type: atype, invoice_id: invId,
+                   invoice_type: null, hsn_code: null, gstr_payload: null };
+      } else {
+        action = { action_type: 'accept_itc', invoice_id: invId,
+                   invoice_type: null, hsn_code: null, gstr_payload: null };
+      }
+
+    } else {
+      // full_gstr3b_filing — classify first, then reconcile
+      const inv = (currentObs.invoices || []).find(i => i.invoice_id === invId) || {};
+      const invType = inferType(inv);
+      action = { action_type: 'classify_invoice', invoice_id: invId,
+                 invoice_type: invType, hsn_code: pickHSN(invType),
+                 gstr_payload: null };
+    }
+
+    await doStep(action);
+  }
+
+  function inferType(inv) {
+    const igst = parseFloat(inv.igst || 0);
+    const cgst = parseFloat(inv.cgst || 0);
+    const tv   = parseFloat(inv.taxable_value || 1);
+    const total = igst + cgst * 2;
+    const rate  = total / tv;
+    if (total === 0) return Math.random() > 0.5 ? 'EXPORT' : 'EXEMPT';
+    if (rate > 0.15) return igst > 0 ? 'B2B' : 'B2B';
+    return 'B2C';
+  }
+
+  function pickHSN(type) {
+    const map = { B2B: '8471', B2C: '2106', EXPORT: '8703', EXEMPT: '0101' };
+    return map[type] || '8471';
+  }
+
+  // ---- Core step call ----
+  async function doStep(action) {
+    setStatus('running', 'Stepping...');
+    try {
+      const r = await fetch(API + '/step', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ action })
+      });
+      const data = await r.json();
+      const obs = data.observation || data;
+      const reward = parseFloat(obs.reward || 0);
+
+      stepCount++;
+      cumulativeReward += reward;
+
+      // Log step
+      stepLog.push({
+        step: stepCount,
+        action: action.action_type,
+        invoiceId: action.invoice_id,
+        reward: reward,
+        done: obs.done,
+        error: obs.last_error,
+      });
+
+      // Remove actioned invoice from pending
+      if (action.invoice_id) pendingSet.delete(action.invoice_id);
+
+      currentObs = obs;
+
+      // Pre-fill next invoice
+      if (obs.pending_actions && obs.pending_actions.length > 0) {
+        document.getElementById('action-inv-id').value = obs.pending_actions[0];
+      }
+
+      updateUI();
+      updateStepLog();
+
+      if (obs.done) {
+        episodeActive = false;
+        document.getElementById('step-btn').disabled = true;
+        document.getElementById('auto-btn').disabled = true;
+        const success = cumulativeReward > 0.5;
+        setStatus('done', `Episode done — Total reward: ${cumulativeReward.toFixed(2)} | ${success ? 'SUCCESS' : 'FAILED'}`);
+      } else {
+        setStatus('running', `Step ${stepCount} — reward: ${reward >= 0 ? '+' : ''}${reward.toFixed(2)}`);
+      }
+    } catch(e) {
+      setStatus('error', 'Step failed: ' + e.message);
+    }
+  }
+
+  // ---- UI Updates ----
+  function updateUI() {
+    if (!currentObs) return;
+
+    const obs = currentObs;
+    const total = (obs.invoices || []).length;
+    const pending = (obs.pending_actions || []).length;
+    const done = total - pending;
+    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+
+    document.getElementById('stat-step').textContent = obs.step ?? stepCount;
+    document.getElementById('stat-maxsteps').textContent = obs.max_steps ?? '—';
+    document.getElementById('stat-reward').textContent = cumulativeReward.toFixed(2);
+    document.getElementById('stat-pending').textContent = pending;
+    document.getElementById('prog-fill').style.width = pct + '%';
+    document.getElementById('prog-pct').textContent = pct + '%';
+
+    document.getElementById('ctx-episode').textContent = obs.episode_context || '—';
+    document.getElementById('ctx-filing').textContent = obs.filing_status || '—';
+    document.getElementById('ctx-itc').textContent = '₹' + (obs.accumulated_itc || 0).toLocaleString('en-IN');
+    document.getElementById('ctx-liability').textContent = '₹' + (obs.tax_liability || 0).toLocaleString('en-IN');
+
+    renderInvoices(obs);
+    renderGSTR2B(obs);
+    document.getElementById('raw-json').textContent = JSON.stringify(obs, null, 2);
+
+    // Reward bar (cap at max possible)
+    const maxReward = (obs.max_steps || 20) * 0.2;
+    const pctR = Math.min(Math.max(cumulativeReward / maxReward, 0), 1) * 100;
+    document.getElementById('reward-bar').style.width = pctR + '%';
+    document.getElementById('reward-bar-label').textContent =
+      `Cumulative reward: ${cumulativeReward.toFixed(2)}`;
+  }
+
+  function renderInvoices(obs) {
+    const list = document.getElementById('invoice-list');
+    const invoices = obs.invoices || [];
+    if (invoices.length === 0) {
+      list.innerHTML = '<div class="empty-state">No invoices.</div>';
+      return;
+    }
+    const pending = new Set(obs.pending_actions || []);
+    list.innerHTML = invoices.map(inv => {
+      const isPending = pending.has(inv.invoice_id);
+      const cls = isPending ? 'pending' : 'done';
+      const total = (parseFloat(inv.igst||0) + parseFloat(inv.cgst||0) + parseFloat(inv.sgst||0)).toFixed(2);
+      return `<div class="invoice-item ${cls}">
+        <div>
+          <div class="inv-id">${inv.invoice_id}</div>
+          <div class="inv-val">₹${parseFloat(inv.taxable_value).toLocaleString('en-IN')}</div>
+          <div class="inv-tax">Tax: ₹${total} | IGST:${inv.igst} CGST:${inv.cgst}</div>
+          <div style="font-size:0.75rem;color:#6c757d;margin-top:2px;">${inv.vendor_name || ''}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-size:0.75rem;color:${isPending ? '#ffc107' : '#20c997'}">
+            ${isPending ? 'PENDING' : 'DONE'}
+          </div>
+          <div style="font-size:0.72rem;color:#6c757d;margin-top:4px;">${inv.invoice_date || ''}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderGSTR2B(obs) {
+    const list = document.getElementById('gstr2b-list');
+    const records = obs.gstr_2b || [];
+    if (records.length === 0) {
+      list.innerHTML = '<div class="empty-state">No GSTR-2B data.</div>';
+      return;
+    }
+    list.innerHTML = records.map(r => {
+      const cls = r.mismatch ? 'mismatch' : '';
+      return `<div class="invoice-item ${cls}">
+        <div>
+          <div class="inv-id">${r.invoice_id}</div>
+          <div class="inv-val">Portal: ₹${parseFloat(r.portal_taxable_value||0).toLocaleString('en-IN')}</div>
+          <div class="inv-tax">IGST: ₹${r.portal_igst || 0}</div>
+        </div>
+        <div>
+          ${r.mismatch
+            ? `<span class="mismatch-badge">${r.mismatch_reason}</span>`
+            : `<span style="font-size:0.75rem;color:#20c997">MATCH</span>`}
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function updateStepLog() {
+    const log = document.getElementById('step-log');
+    if (stepLog.length === 0) {
+      log.innerHTML = '<div class="empty-state">No steps yet.</div>';
+      return;
+    }
+    log.innerHTML = [...stepLog].reverse().map(s => {
+      const rCls = s.reward > 0 ? 'pos' : s.reward < 0 ? 'neg' : 'zero';
+      const rStr = (s.reward >= 0 ? '+' : '') + s.reward.toFixed(2);
+      return `<div class="step-item">
+        <div class="step-num">#${s.step}</div>
+        <div class="step-action">
+          <span>${s.action}</span>
+          ${s.invoiceId ? ` — ${s.invoiceId}` : ''}
+          ${s.error ? `<div style="color:#f06595;font-size:0.75rem">${s.error}</div>` : ''}
+        </div>
+        <div class="step-reward ${rCls}">${rStr}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function setStatus(type, msg) {
+    const bar = document.getElementById('status-bar');
+    bar.className = 'status-bar ' + type;
+    bar.innerHTML = `<span class="dot"></span> ${msg}`;
+  }
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab').forEach((t, i) => {
+      const names = ['invoices','gstr2b','log','raw'];
+      t.classList.toggle('active', names[i] === name);
+    });
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+  }
+
+  // Init
+  checkHealth();
+</script>
+
+</body>
+</html>
