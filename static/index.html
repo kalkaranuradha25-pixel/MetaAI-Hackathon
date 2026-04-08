@@ -491,13 +491,12 @@
     document.getElementById('reward-bar').style.width = '0%';
 
     try {
-      const r = await fetch(API + '/reset', {
+      const r = await fetch(API + '/ui/reset', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ task: currentTask })
       });
-      const data = await r.json();
-      currentObs = data.observation || data;
+      currentObs = await r.json();
       episodeActive = true;
 
       // Set pending IDs
@@ -604,13 +603,12 @@
   async function doStep(action) {
     setStatus('running', 'Stepping...');
     try {
-      const r = await fetch(API + '/step', {
+      const r = await fetch(API + '/ui/step', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ action })
+        body: JSON.stringify(action)
       });
-      const data = await r.json();
-      const obs = data.observation || data;
+      const obs = await r.json();
       const reward = parseFloat(obs.reward || 0);
 
       stepCount++;
