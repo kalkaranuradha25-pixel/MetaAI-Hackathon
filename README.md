@@ -1,3 +1,15 @@
+---
+title: Gst Sahayak
+emoji: 🔥
+colorFrom: green
+colorTo: yellow
+sdk: docker
+pinned: false
+tags:
+  - openenv
+short_description: An RL trained to perform GST-billing and compliance tasks
+---
+
 # GST Sahayak
 
 An RL environment for automated Indian GST compliance — built on the [OpenEnv](https://github.com/meta-pytorch/OpenEnv) framework.
@@ -59,9 +71,9 @@ Fields the agent sends to the environment each step.
 
 | Action | Description | Reward |
 |---|---|---|
-| `classify_invoice` | Assign type and HSN code to an invoice | +0.15 (correct) / −0.05 (wrong) |
-| `accept_itc` | Accept ITC claim for an invoice | +0.20 (correct) / −0.30 (audit flag) |
-| `reject_itc` | Reject ITC claim for an invoice | +0.20 (correct) / −0.15 (ITC loss) |
+| `classify_invoice` | Assign type and HSN code to an invoice | +0.15 (correct) / -0.05 (wrong) |
+| `accept_itc` | Accept ITC claim for an invoice | +0.20 (correct) / -0.30 (audit flag) |
+| `reject_itc` | Reject ITC claim for an invoice | +0.20 (correct) / -0.15 (ITC loss) |
 | `flag_for_review` | Flag invoice for human review | +0.05 (always safe) |
 | `compute_liability` | Lock in net tax liability | +0.30 (within tolerance) |
 | `file_return` | Submit final GSTR-3B payload | +1.00 (correct) / partial credit |
@@ -78,20 +90,20 @@ Fields the agent sends to the environment each step.
 
 ### Grading formulas
 
-**Task 1 — Invoice Classifier:**
+**Task 1 - Invoice Classifier:**
 ```
 score = (correct_types / total) + (correct_hsn / total) * 0.5
 score = min(score, 1.0)
 ```
 
-**Task 2 — ITC Reconciliation (F1 score):**
+**Task 2 - ITC Reconciliation (F1 score):**
 ```
 precision = TP / (TP + FP)
 recall    = TP / (TP + FN)
 score     = 2 * precision * recall / (precision + recall)
 ```
 
-**Task 3 — Full GSTR-3B Filing:**
+**Task 3 - Full GSTR-3B Filing:**
 ```
 field_score   = avg(1 - |agent_val - truth_val| / truth_val) per payload field
 penalty_score = 1.0 - (audit_flags * 0.1)
@@ -141,45 +153,6 @@ docker run -e HF_TOKEN=your_token_here -p 7860:7860 gst-sahayak
 uvicorn server.app:app --host 0.0.0.0 --port 7860
 ```
 
-### Use the Python client
-
-```python
-import asyncio
-from client import GSTEnvClient
-from models import GSTAction
-
-async def main():
-    async with GSTEnvClient(base_url="http://localhost:7860") as env:
-        obs = await env.reset(task="invoice_classifier")
-        while not obs.done:
-            action = GSTAction(
-                action_type="classify_invoice",
-                invoice_id=obs.pending_actions[0],
-                invoice_type="B2B",
-                hsn_code="8471",
-            )
-            obs = await env.step(action)
-        print(f"Final reward: {obs.reward}")
-
-asyncio.run(main())
-```
-
-### Use the mock agent for local testing (no API key needed)
-
-```python
-from server.gst_environment import GSTEnvironment
-from models import GSTAction
-
-env = GSTEnvironment()
-obs = env.reset(task="invoice_classifier")
-while not obs.done:
-    inv_id = obs.pending_actions[0] if obs.pending_actions else None
-    action = GSTAction(action_type="classify_invoice", invoice_id=inv_id,
-                       invoice_type="B2B", hsn_code="8471")
-    obs = env.step(action)
-    print(f"Step {obs.step}: reward={obs.reward:.2f}, done={obs.done}")
-```
-
 ---
 
 ## 5. Baseline Performance Scores
@@ -192,26 +165,24 @@ Scores measured with fixed random seed (reproducible):
 | `itc_reconciliation` | 0.40 | 0.71 | 0.70 |
 | `full_gstr3b_filing` | 0.15 | 0.63 | 0.60 |
 
-LLM baseline uses the `obs_to_prompt()` function in `inference.py` with `gpt-4.1-mini`.
-
 ---
 
 ## Project Structure
 
 ```
 gst-sahayak/
-├── inference.py          ← LLM agent loop (hackathon required)
-├── openenv.yaml          ← Environment metadata
-├── Dockerfile            ← Container deployment
+├── inference.py          <- LLM agent loop (hackathon required)
+├── openenv.yaml          <- Environment metadata
+├── Dockerfile            <- Container deployment
 ├── requirements.txt
 ├── README.md
-├── models.py             ← GSTAction, GSTObservation, GSTState
-├── client.py             ← Remote EnvClient
+├── models.py             <- GSTAction, GSTObservation, GSTState
+├── client.py             <- Remote EnvClient
 └── server/
-    ├── app.py            ← FastAPI server via HTTPEnvServer
-    ├── gst_environment.py ← reset(), step(), state
-    ├── graders.py        ← Task 1/2/3 graders
-    └── data_generator.py ← Synthetic invoice generator
+    ├── app.py            <- FastAPI server via HTTPEnvServer
+    ├── gst_environment.py <- reset(), step(), state
+    ├── graders.py        <- Task 1/2/3 graders
+    └── data_generator.py <- Synthetic invoice generator
 ```
 
 ## License
