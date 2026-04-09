@@ -13,7 +13,6 @@ from .data_generator import (
     generate_episode,
     invoice_for_agent,
     compute_ground_truth_gstr3b,
-    TASK_CONFIGS,
 )
 from .graders import (
     reward_classify_invoice,
@@ -47,6 +46,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
     SUPPORTS_CONCURRENT_SESSIONS = True
 
     def __init__(self):
+        super().__init__()  # BUG-5 fix: initialise base Environment (sets transform, rubric)
         self._episode_data: Optional[dict] = None
         self._classified_so_far: dict = {}
         self._itc_decisions: dict = {}
@@ -181,16 +181,37 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                 reconciled = len(self._itc_decisions)
                 total = len(all_ids)
 
+                # BUG-8 fix: guard against empty invoice list
+                if total == 0:
+                    step_reward = -0.10
+                    self._last_error = "No invoices in episode"
                 # Tolerance: at least 70% done before computing
-                if classified / total < 0.7 or (self._task != "invoice_classifier" and reconciled / total < 0.7):
+                elif classified / total < 0.7 or (self._task != "invoice_classifier" and reconciled / total < 0.7):
                     step_reward = -0.10
                     self._last_error = "Too many invoices unprocessed for liability computation"
                 else:
-                    # Compute ground truth net liability
+                    # BUG-4 fix: compute actual 5% tolerance check against ground truth
                     gt_payload = compute_ground_truth_gstr3b(invoices, self._accepted_itc_ids)
                     gt_net = sum(gt_payload["net_tax_liability"].values())
-                    # Reward if agent has been accurate so far (proxy: audit_flags == 0)
-                    within_tolerance = self._audit_flags == 0
+
+                    # Agent's implied net = outward liability from classified invoices - accepted ITC
+                    agent_outward = sum(
+                        inv.get("igst", 0) + inv.get("cgst", 0) + inv.get("sgst", 0)
+                        for inv in invoices
+                        if self._classified_so_far.get(inv["invoice_id"], {}).get("invoice_type") in ("B2B", "B2C")
+                    )
+                    agent_itc = sum(
+                        inv.get("igst", 0) + inv.get("cgst", 0) + inv.get("sgst", 0)
+                        for inv in invoices
+                        if inv["invoice_id"] in self._accepted_itc_ids
+                    )
+                    agent_net = max(0.0, agent_outward - agent_itc)
+
+                    if gt_net > 0:
+                        within_tolerance = abs(agent_net - gt_net) / gt_net <= 0.05
+                    else:
+                        within_tolerance = agent_net == 0.0
+
                     step_reward = reward_compute_liability(within_tolerance)
                     self._liability_computed = True
 
@@ -208,8 +229,9 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                 # Check for premature filing (incomplete actions)
                 all_ids = [i["invoice_id"] for i in invoices]
                 total = len(all_ids)
-                classified_pct = len(self._classified_so_far) / total
-                reconciled_pct = len(self._itc_decisions) / total
+                # BUG-8 fix: guard against empty invoice list
+                classified_pct = len(self._classified_so_far) / total if total > 0 else 1.0
+                reconciled_pct = len(self._itc_decisions) / total if total > 0 else 1.0
 
                 if classified_pct < 0.5 or reconciled_pct < 0.5:
                     # Premature filing penalty

@@ -11,6 +11,7 @@ import os
 import json
 
 from openai import OpenAI
+from models import GSTAction  # BUG-2 fix: import GSTAction for env.step() conversion
 
 # --- Environment variables (hackathon requirements) ---
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
@@ -111,58 +112,73 @@ def get_action(obs: dict, task: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def run_task(env, task_name: str):
-    obs = env.reset(task=task_name)
-
-    # Support both OpenEnv Observation object and plain dict
-    obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-
+    # BUG-3 fix: [START] emitted before try so it always appears;
+    # [END] emitted in finally so it is guaranteed even on exception.
     print(f"[START] task={task_name} env=gst-sahayak model={MODEL_NAME}", flush=True)
 
     rewards = []
     step = 0
-    done = False
 
-    while not done:
-        step += 1
+    try:
+        obs = env.reset(task=task_name)
 
-        action_dict = get_action(obs_dict, task_name)
-        action_str = json.dumps(action_dict, separators=(",", ":"))
+        # Support both OpenEnv Observation object and plain dict
+        obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
 
-        error = "null"
-        reward = 0.0
+        done = False
 
-        try:
-            # Accept both (obs, reward, done, info) tuple and OpenEnv Observation object
-            result = env.step(action_dict)
+        while not done:
+            step += 1
 
-            if isinstance(result, tuple):
-                obs, reward, done, info = result
-                obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-                reward = round(float(reward), 2)
-                error = info.get("error") or "null" if isinstance(info, dict) else "null"
-            else:
-                obs = result
-                obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-                reward = round(float(obs_dict.get("reward", 0.0)), 2)
-                done = bool(obs_dict.get("done", False))
-                last_err = obs_dict.get("last_error")
-                error = last_err if last_err else "null"
+            action_dict = get_action(obs_dict, task_name)
+            action_str = json.dumps(action_dict, separators=(",", ":"))
 
-        except Exception as exc:
+            error = "null"
             reward = 0.0
-            done = True
-            error = str(exc).replace("\n", " ")[:200]
 
-        rewards.append(reward)
+            try:
+                # BUG-1 fix: convert dict to GSTAction before passing to env.step()
+                result = env.step(GSTAction(**action_dict))
+
+                if isinstance(result, tuple):
+                    obs, reward, done, info = result
+                    obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
+                    reward = round(float(reward), 2)
+                    # BUG-6 fix: guard isinstance check before calling .get()
+                    error = (info.get("error") or "null") if isinstance(info, dict) else "null"
+                else:
+                    obs = result
+                    obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
+                    reward = round(float(obs_dict.get("reward", 0.0)), 2)
+                    done = bool(obs_dict.get("done", False))
+                    last_err = obs_dict.get("last_error")
+                    error = last_err if last_err else "null"
+
+            except Exception as exc:
+                reward = 0.0
+                done = True
+                error = str(exc).replace("\n", " ")[:200]
+
+            rewards.append(reward)
+            print(
+                f"[STEP] step={step} action={action_str} reward={reward:.2f} "
+                f"done={str(done).lower()} error={error}",
+                flush=True,
+            )
+
+    except Exception as exc:
+        # Catch errors from env.reset() or any unhandled path; [END] still fires below
+        rewards.append(0.0)
         print(
-            f"[STEP] step={step} action={action_str} reward={reward:.2f} "
-            f"done={str(done).lower()} error={error}",
+            f"[STEP] step={step + 1} action={{}} reward=0.00 done=true "
+            f"error={str(exc).replace(chr(10), ' ')[:200]}",
             flush=True,
         )
 
-    success = sum(rewards) > 0.5
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={step} rewards={rewards_str}", flush=True)
+    finally:
+        success = sum(rewards) > 0.5
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards) or "0.00"
+        print(f"[END] success={str(success).lower()} steps={step} rewards={rewards_str}", flush=True)
 
 
 # ---------------------------------------------------------------------------

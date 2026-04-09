@@ -4,7 +4,29 @@ GSTAction, GSTObservation, GSTState inheriting from OpenEnv base types.
 """
 
 from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
 from openenv.core.env_server.types import Action, Observation, State
+
+
+# BUG-7 fix: typed sub-models for PRD F2 requirement
+class Invoice(BaseModel):
+    invoice_id: str
+    vendor_name: str
+    vendor_gstin: str
+    invoice_date: str
+    invoice_number: str
+    taxable_value: float
+    igst: float
+    cgst: float
+    sgst: float
+
+
+class MatchRecord(BaseModel):
+    invoice_id: str
+    portal_taxable_value: float
+    portal_igst: float
+    mismatch: bool
+    mismatch_reason: Optional[str] = None
 
 
 class GSTAction(Action):
@@ -30,8 +52,8 @@ class GSTObservation(Observation):
     What the environment returns after each step.
     Inherits `reward: float` and `done: bool` from Observation base.
     """
-    invoices: List[dict]          # current batch of invoices to process
-    gstr_2b: List[dict]           # GSTN portal's GSTR-2B match records
+    invoices: List[Invoice]       # BUG-7 fix: typed Invoice sub-model
+    gstr_2b: List[MatchRecord]    # BUG-7 fix: typed MatchRecord sub-model
     accumulated_itc: float        # running ITC claimed so far
     tax_liability: float          # running liability computed so far
     step: int
