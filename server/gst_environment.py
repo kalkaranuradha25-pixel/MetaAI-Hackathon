@@ -23,6 +23,7 @@ from .graders import (
     grade_itc_reconciliation,
     grade_gstr3b_filing,
     _field_accuracy,  # BUG-14 fix: single canonical implementation
+    _SCORE_MIN,
 )
 
 VALID_ACTION_TYPES = {
@@ -84,7 +85,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
         self._final_payload = None
         self._accepted_itc_ids = []
 
-        return self._build_observation(reward=0.0, done=False)
+        return self._build_observation(reward=_SCORE_MIN, done=False)
 
     # ------------------------------------------------------------------
     # step
@@ -96,7 +97,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             action = GSTAction(**action)
 
         if self._done:
-            return self._build_observation(reward=0.0, done=True, error="Episode already finished")
+            return self._build_observation(reward=_SCORE_MIN, done=True, error="Episode already finished")
 
         self._current_step += 1
         self._last_error = None

@@ -1,19 +1,19 @@
 """
 GST Sahayak — Task Graders
-Each grader takes environment state and returns a float score 0.0–1.0.
+Each grader takes environment state and returns a float score strictly in (0, 1).
 All graders are deterministic — no randomness in scoring.
 """
 
 from typing import Dict, List
 
-# Validator requires scores strictly in the open interval (0, 1) — not 0.0, not 1.0
-_SCORE_MIN = 1e-4
-_SCORE_MAX = 1.0 - 1e-4
+# Validator requires scores strictly in the open interval (0, 1) — never 0.0 or 1.0
+_SCORE_MIN = 1e-4          # smallest allowed score
+_SCORE_MAX = 1.0 - 1e-4   # largest allowed score
 
 
 def _clamp(score: float) -> float:
-    """Clamp a score to the open interval (0, 1) as required by the hackathon validator."""
-    return max(_SCORE_MIN, min(_SCORE_MAX, score))
+    """Clamp any score/reward to the open interval (_SCORE_MIN, _SCORE_MAX)."""
+    return max(_SCORE_MIN, min(_SCORE_MAX, float(score)))
 
 
 # ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ def grade_invoice_classifier(
 ) -> float:
     """
     Score = (correct_types / total) + (correct_hsn / total) * 0.5
-    Capped at 1.0.
+    Strictly within (0, 1).
     """
     total = len(ground_truth_invoices)
     if total == 0:
@@ -40,18 +40,15 @@ def grade_invoice_classifier(
         agent_decision = classified_so_far.get(inv_id, {})
 
         gt_type = inv["_ground_truth_type"]
-        gt_hsn = inv["_ground_truth_hsn"]
+        gt_hsn  = inv["_ground_truth_hsn"]
 
-        agent_type = agent_decision.get("invoice_type")
-        agent_hsn = agent_decision.get("hsn_code")
-
-        if agent_type == gt_type:
+        if agent_decision.get("invoice_type") == gt_type:
             correct_types += 1
-        if agent_hsn == gt_hsn:
+        if agent_decision.get("hsn_code") == gt_hsn:
             correct_hsn += 1
 
     score = (correct_types / total) + (correct_hsn / total) * 0.5
-    return _clamp(round(score, 4))
+    return _clamp(round(score, 6))
 
 
 # ---------------------------------------------------------------------------
@@ -63,31 +60,30 @@ def grade_itc_reconciliation(
     itc_decisions: Dict[str, str],
 ) -> float:
     """
-    Treat "accept" as the positive class for invoices that should be accepted.
+    Treat "accept" as the positive class.
     F1 = 2 * precision * recall / (precision + recall)
-    correct_decision is "accept", "reject", or "flag" (value_mismatch invoices).
+    correct_decision: "accept" | "reject" | "flag" (value_mismatch)
+    Strictly within (0, 1).
     """
     tp = fp = fn = 0
 
     for item in ground_truth_itc:
         inv_id = item["invoice_id"]
-        correct = item["correct_decision"]   # "accept", "reject", or "flag"
-        agent_decision = itc_decisions.get(inv_id)  # "accepted", "rejected", "flagged", None
+        correct = item["correct_decision"]          # "accept" | "reject" | "flag"
+        agent   = itc_decisions.get(inv_id)         # "accepted"|"rejected"|"flagged"|None
 
-        if agent_decision is None:
+        if agent is None:
             if correct == "accept":
                 fn += 1
             continue
 
-        # BUG-9 follow-through: "flag" invoices — accepting them is a false positive;
-        # rejecting or flagging them is treated as a true negative (cautious, safe)
+        # value_mismatch: accepting = fp; rejecting/flagging = true negative
         if correct == "flag":
-            if agent_decision == "accepted":
+            if agent == "accepted":
                 fp += 1
-            # rejected or flagged = not fp/fn for F1 purposes
             continue
 
-        agent_accept = agent_decision == "accepted"
+        agent_accept   = agent   == "accepted"
         correct_accept = correct == "accept"
 
         if correct_accept and agent_accept:
@@ -96,10 +92,8 @@ def grade_itc_reconciliation(
             fp += 1
         elif correct_accept and not agent_accept:
             fn += 1
-        # True negative (correctly rejected/flagged) doesn't factor into F1 numerator
 
-    # BUG-12 fix: when there are no positive cases (tp+fn==0), the correct answer
-    # is to accept nothing — return max score if agent accepted nothing (fp==0)
+    # No positive cases — agent correctly accepted nothing
     if tp + fn == 0:
         return _SCORE_MAX if fp == 0 else _SCORE_MIN
 
@@ -107,13 +101,13 @@ def grade_itc_reconciliation(
         return _SCORE_MIN
 
     precision = tp / (tp + fp)
-    recall = tp / (tp + fn)
+    recall    = tp / (tp + fn)
 
     if precision + recall == 0:
         return _SCORE_MIN
 
     f1 = 2 * precision * recall / (precision + recall)
-    return _clamp(round(f1, 4))
+    return _clamp(round(f1, 6))
 
 
 # ---------------------------------------------------------------------------
@@ -121,10 +115,12 @@ def grade_itc_reconciliation(
 # ---------------------------------------------------------------------------
 
 def _field_accuracy(agent_val: float, truth_val: float) -> float:
-    """Single field accuracy: 1 - |agent - truth| / truth, clamped to [0, 1]."""
+    """Per-field accuracy clamped to (_SCORE_MIN, _SCORE_MAX)."""
     if truth_val == 0.0:
-        return 1.0 if agent_val == 0.0 else 0.0
-    return max(0.0, 1.0 - abs(agent_val - truth_val) / truth_val)
+        raw = _SCORE_MAX if agent_val == 0.0 else _SCORE_MIN
+    else:
+        raw = max(0.0, 1.0 - abs(agent_val - truth_val) / truth_val)
+    return _clamp(raw)
 
 
 def grade_gstr3b_filing(
@@ -136,6 +132,7 @@ def grade_gstr3b_filing(
 ) -> float:
     """
     final_score = (field_score * 0.6) + (penalty_score * 0.3) + (time_score * 0.1)
+    Strictly within (0, 1).
     """
     if agent_payload is None:
         return _SCORE_MIN
@@ -146,32 +143,30 @@ def grade_gstr3b_filing(
     def compare_nested(agent_dict: dict, truth_dict: dict):
         for key in truth_dict:
             truth_val = truth_dict.get(key, 0.0)
-            agent_val = agent_dict.get(key, 0.0) if agent_dict else 0.0
+            agent_val = (agent_dict.get(key, 0.0) if agent_dict else 0.0)
             if isinstance(truth_val, dict):
-                compare_nested(agent_val, truth_val)
+                compare_nested(agent_val if isinstance(agent_val, dict) else {}, truth_val)
             else:
                 field_scores.append(_field_accuracy(float(agent_val), float(truth_val)))
 
     compare_nested(agent_payload, ground_truth_payload)
-    field_score = sum(field_scores) / len(field_scores) if field_scores else 0.0
+    field_score = _clamp(sum(field_scores) / len(field_scores)) if field_scores else _SCORE_MIN
 
-    # --- Penalty score ---
-    penalty_score = max(0.0, 1.0 - audit_flags * 0.1)
+    # --- Penalty score (clamped) ---
+    penalty_score = _clamp(max(0.0, 1.0 - audit_flags * 0.1))
 
-    # --- Time score ---
-    # BUG-13 fix: avoid hardcoded 15.0; derive from max_steps so it stays correct
-    # if max_steps ever changes (threshold is always 75% of max_steps)
+    # --- Time score (clamped) ---
     threshold = int(max_steps * 0.75)
-    window = max(max_steps - threshold, 1)
+    window    = max(max_steps - threshold, 1)
     if steps_taken < threshold:
-        time_score = 1.0
+        time_score = _SCORE_MAX
     elif steps_taken <= max_steps:
-        time_score = (max_steps - steps_taken) / window
+        time_score = _clamp((max_steps - steps_taken) / window)
     else:
-        time_score = 0.0
+        time_score = _SCORE_MIN
 
     final = (field_score * 0.6) + (penalty_score * 0.3) + (time_score * 0.1)
-    return _clamp(round(final, 4))
+    return _clamp(round(final, 6))
 
 
 # ---------------------------------------------------------------------------
@@ -183,29 +178,25 @@ def reward_classify_invoice(correct_type: bool, correct_hsn: bool) -> float:
         return 0.15
     elif correct_type:
         return 0.05
-    else:
-        return -0.05
+    return -0.05
 
 
 def reward_itc_decision(action_type: str, correct_decision: str) -> float:
     """
-    action_type: "accept_itc" | "reject_itc" | "flag_for_review"
-    correct_decision: "accept" | "reject" | "flag" (value_mismatch invoices)
+    action_type:      "accept_itc" | "reject_itc" | "flag_for_review"
+    correct_decision: "accept"     | "reject"      | "flag"
     """
-    # BUG-9 follow-through: align reward with the prompt rule and grader
-    # "flag" means value_mismatch — prompt says flag_for_review is correct
     if correct_decision == "flag":
         if action_type == "flag_for_review":
-            return 0.20   # correct decision
+            return 0.20
         elif action_type == "reject_itc":
-            return 0.05   # cautious but not the intended action
-        else:             # accept_itc on a disputed invoice — audit risk
-            return -0.30
+            return 0.05
+        return -0.30
 
     if action_type == "flag_for_review":
-        return 0.05  # safe partial credit for non-flag cases
+        return 0.05
 
-    agent_accept = action_type == "accept_itc"
+    agent_accept  = action_type == "accept_itc"
     should_accept = correct_decision == "accept"
 
     if agent_accept and should_accept:
@@ -213,9 +204,8 @@ def reward_itc_decision(action_type: str, correct_decision: str) -> float:
     elif not agent_accept and not should_accept:
         return 0.20
     elif agent_accept and not should_accept:
-        return -0.30  # audit flag — high penalty
-    else:
-        return -0.15  # wrongly rejected valid ITC
+        return -0.30
+    return -0.15
 
 
 def reward_compute_liability(within_tolerance: bool) -> float:
@@ -223,7 +213,7 @@ def reward_compute_liability(within_tolerance: bool) -> float:
 
 
 def reward_file_return(field_accuracy: float) -> float:
+    """Per-step filing reward — clamped so obs.reward is never exactly 0 or 1."""
     if field_accuracy >= 0.95:
-        return _SCORE_MAX   # clamped: never exactly 1.0
-    else:
-        return round(max(field_accuracy * 0.5, _SCORE_MIN), 2)
+        return _SCORE_MAX
+    return _clamp(round(field_accuracy * 0.5, 4))

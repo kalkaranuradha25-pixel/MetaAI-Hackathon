@@ -181,7 +181,7 @@ def run_task(env, task_name: str):
             action_dict = get_action(obs_dict, task_name)
             action_str = json.dumps(action_dict, separators=(",", ":"))
             error = "null"
-            reward = 0.0
+            reward = 1e-4
 
             try:
                 result = env.step(GSTAction(**action_dict))
@@ -194,13 +194,13 @@ def run_task(env, task_name: str):
                 else:
                     obs = result
                     obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-                    reward = round(float(obs_dict.get("reward", 0.0)), 2)
+                    reward = round(float(obs_dict.get("reward", 1e-4)), 2)
                     done = bool(obs_dict.get("done", False))
                     last_err = obs_dict.get("last_error")
                     error = last_err if last_err else "null"
 
             except Exception as exc:
-                reward = 0.0
+                reward = 1e-4
                 done = True
                 error = str(exc).replace("\n", " ")[:200]
 

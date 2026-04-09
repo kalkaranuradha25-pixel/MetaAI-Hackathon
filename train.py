@@ -32,7 +32,7 @@ from server.data_generator import (
     generate_episode, invoice_for_agent,
     HSN_CODES, INVOICE_TYPES, TASK_CONFIGS
 )
-from server.graders import grade_invoice_classifier, grade_itc_reconciliation
+from server.graders import grade_invoice_classifier, grade_itc_reconciliation, _SCORE_MIN
 
 # -------------------------------------------------------------------------
 # Constants
@@ -253,7 +253,7 @@ class TrainingEnv:
             return grade_itc_reconciliation(
                 self._data["ground_truth_itc"], self._itc_decisions
             )
-        return 0.0
+        return _SCORE_MIN
 
 
 # -------------------------------------------------------------------------
