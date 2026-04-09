@@ -224,6 +224,6 @@ def reward_compute_liability(within_tolerance: bool) -> float:
 
 def reward_file_return(field_accuracy: float) -> float:
     if field_accuracy >= 0.95:
-        return 1.00
+        return _SCORE_MAX   # clamped: never exactly 1.0
     else:
-        return round(field_accuracy * 0.5, 2)
+        return round(max(field_accuracy * 0.5, _SCORE_MIN), 2)

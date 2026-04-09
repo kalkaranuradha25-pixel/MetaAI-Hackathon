@@ -15,34 +15,28 @@ import sys
 from openai import OpenAI
 from models import GSTAction
 
-# --- Environment variables (hackathon requirements) ---
+# --- Environment variables (PRD Section 2.3 + Section 7 compliance) ---
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+HF_TOKEN     = os.getenv("HF_TOKEN")
 
-# Issue-1 fix: defer token validation to first use — importing this module does NOT crash
-# Issue-10 fix: reject empty strings too, not just None
-_openai_client = None
+# PRD Section 2.3: HF_TOKEN is mandatory — raise ValueError at module level
+if HF_TOKEN is None:
+    raise ValueError("HF_TOKEN environment variable is required")
 
-def _get_client() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
-        token = os.getenv("HF_TOKEN", "").strip()
-        if not token:
-            raise RuntimeError("HF_TOKEN environment variable is required and must not be empty")
-        _openai_client = OpenAI(base_url=API_BASE_URL, api_key=token)
-    return _openai_client
-
+# PRD Section 7: client created at module level
+client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
 
 TASKS = ["invoice_classifier", "itc_reconciliation", "full_gstr3b_filing"]
 
-# Issue-9 fix: per-task success thresholds from PRD Section 3
+# PRD Section 3: per-task success thresholds
 TASK_THRESHOLDS = {
     "invoice_classifier": 0.80,
     "itc_reconciliation": 0.70,
     "full_gstr3b_filing": 0.60,
 }
 
-# GSTR-3B payload template — used in prompt only when filing is next
+# GSTR-3B payload template — injected into prompt only when filing is next
 _GSTR3B_TEMPLATE = (
     '{"outward_taxable_supplies":{"igst":0.0,"cgst":0.0,"sgst":0.0},'
     '"zero_rated_supplies":{"igst":0.0},'
@@ -61,19 +55,15 @@ def obs_to_prompt(obs: dict, task: str) -> str:
     """Build a focused prompt — only pending invoices to cut token waste."""
     pending = obs.get("pending_actions", [])
 
-    # Issue-6 fix: send only invoices that are still pending, not the full batch
+    # Send only invoices that are still pending
     all_invoices = obs.get("invoices", [])
-    # pending may contain action-hint strings like "compute_liability" — filter those
-    pending_ids = {p for p in pending if not p.startswith("ACTION:") and p not in
-                   ("compute_liability", "file_return")}
-    if pending_ids:
-        invoices_to_show = [inv for inv in all_invoices
-                            if inv.get("invoice_id") in pending_ids]
-    else:
-        invoices_to_show = []
+    pending_ids = {p for p in pending if p not in ("compute_liability", "file_return")}
+    invoices_to_show = (
+        [inv for inv in all_invoices if inv.get("invoice_id") in pending_ids]
+        if pending_ids else []
+    )
 
-    # Issue-4 fix: show full GSTR-3B schema only when the agent actually needs to file
-    filing_hint = obs.get("filing_status", "")
+    # Include GSTR-3B template only when file_return is the next required action
     needs_filing = (
         task in ("itc_reconciliation", "full_gstr3b_filing")
         and "file_return" in pending
@@ -90,9 +80,9 @@ def obs_to_prompt(obs: dict, task: str) -> str:
 Task: {task}
 Step: {obs.get('step', 0)}/{obs.get('max_steps', 60)}
 Episode context: {obs.get('episode_context', '')}
-Accumulated ITC: ₹{obs.get('accumulated_itc', 0):.2f}
-Tax liability so far: ₹{obs.get('tax_liability', 0):.2f}
-Filing status: {filing_hint}
+Accumulated ITC: \u20b9{obs.get('accumulated_itc', 0):.2f}
+Tax liability so far: \u20b9{obs.get('tax_liability', 0):.2f}
+Filing status: {obs.get('filing_status', '')}
 Next required actions: {pending}
 
 Pending invoices to process:
@@ -108,9 +98,9 @@ CLASSIFICATION RULES (classify_invoice):
 - EXEMPT: fresh food, healthcare, education (no GST)
 
 RECONCILIATION RULES (ITC decisions):
-- mismatch=false → accept_itc
-- mismatch_reason in [missing_on_portal, gstin_mismatch, duplicate_invoice] → reject_itc
-- mismatch_reason = value_mismatch → flag_for_review
+- mismatch=false \u2192 accept_itc
+- mismatch_reason in [missing_on_portal, gstin_mismatch, duplicate_invoice] \u2192 reject_itc
+- mismatch_reason = value_mismatch \u2192 flag_for_review
 
 HSN CODES: 8471=computers 8517=phones 6204=garments 3004=pharma
 2106=food 9401=furniture 4901=books 8516=appliances 7208=steel 0101=livestock
@@ -135,25 +125,24 @@ def get_action(obs: dict, task: str) -> dict:
     first_pending = pending[0] if pending else None
 
     try:
-        # Issue-7 fix: higher token budget for Task 3 where file_return JSON is large
+        # Higher token budget for Task 3 where file_return JSON is large
         max_tok = 1500 if task == "full_gstr3b_filing" else 600
 
-        response = _get_client().chat.completions.create(
+        response = client.chat.completions.create(
             model=MODEL_NAME,
             max_tokens=max_tok,
             messages=[{"role": "user", "content": obs_to_prompt(obs, task)}],
         )
         content = response.choices[0].message.content.strip()
 
-        # Issue-2 fix: strip markdown fences robustly using regex
+        # Strip markdown fences robustly
         content = re.sub(r"^```[a-z]*\s*", "", content)
         content = re.sub(r"\s*```$", "", content).strip()
 
         return json.loads(content)
 
     except Exception:
-        # Issue-3 fix: handle action-hint tokens ("compute_liability", "file_return")
-        # that appear in pending_actions for Task 3 when all invoices are processed
+        # Handle action-hint tokens that appear in pending_actions for Task 3
         if first_pending in ("compute_liability", "file_return"):
             return {
                 "action_type": first_pending,
@@ -165,7 +154,7 @@ def get_action(obs: dict, task: str) -> dict:
         # Safe fallback — flag_for_review never causes an audit penalty
         return {
             "action_type": "flag_for_review",
-            "invoice_id": first_pending,  # None if no pending invoices
+            "invoice_id": first_pending,
             "hsn_code": None,
             "invoice_type": None,
             "gstr_payload": None,
@@ -223,15 +212,11 @@ def run_task(env, task_name: str):
             )
 
     except Exception as exc:
-        # Issue-8 fix: log reset() failures to stderr so they're visible in logs
         print(f"[ERROR] reset failed for task={task_name}: {exc}", file=sys.stderr, flush=True)
-        # No [STEP] emitted — env.step() was never called
 
     finally:
-        # Issue-9 fix: per-task success threshold from PRD
         threshold = TASK_THRESHOLDS.get(task_name, 0.5)
         success = sum(rewards) >= threshold
-        # Issue-11 fix: emit "0.00" rather than empty string on reset failure
         rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.00"
         print(f"[END] success={str(success).lower()} steps={step} rewards={rewards_str}", flush=True)
 
