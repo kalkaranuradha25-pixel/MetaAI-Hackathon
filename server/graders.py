@@ -6,6 +6,15 @@ All graders are deterministic — no randomness in scoring.
 
 from typing import Dict, List
 
+# Validator requires scores strictly in the open interval (0, 1) — not 0.0, not 1.0
+_SCORE_MIN = 1e-4
+_SCORE_MAX = 1.0 - 1e-4
+
+
+def _clamp(score: float) -> float:
+    """Clamp a score to the open interval (0, 1) as required by the hackathon validator."""
+    return max(_SCORE_MIN, min(_SCORE_MAX, score))
+
 
 # ---------------------------------------------------------------------------
 # Task 1 — Invoice Classifier Grader
@@ -21,7 +30,7 @@ def grade_invoice_classifier(
     """
     total = len(ground_truth_invoices)
     if total == 0:
-        return 0.0
+        return _SCORE_MIN
 
     correct_types = 0
     correct_hsn = 0
@@ -42,7 +51,7 @@ def grade_invoice_classifier(
             correct_hsn += 1
 
     score = (correct_types / total) + (correct_hsn / total) * 0.5
-    return min(round(score, 4), 1.0)
+    return _clamp(round(score, 4))
 
 
 # ---------------------------------------------------------------------------
@@ -90,22 +99,21 @@ def grade_itc_reconciliation(
         # True negative (correctly rejected/flagged) doesn't factor into F1 numerator
 
     # BUG-12 fix: when there are no positive cases (tp+fn==0), the correct answer
-    # is to accept nothing — return 1.0 if agent accepted nothing (fp==0), else 0.0
+    # is to accept nothing — return max score if agent accepted nothing (fp==0)
     if tp + fn == 0:
-        return 1.0 if fp == 0 else 0.0
+        return _SCORE_MAX if fp == 0 else _SCORE_MIN
 
     if tp + fp == 0:
-        # Has positives to find but never accepted anything — recall = 0
-        return 0.0
+        return _SCORE_MIN
 
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
 
     if precision + recall == 0:
-        return 0.0
+        return _SCORE_MIN
 
     f1 = 2 * precision * recall / (precision + recall)
-    return round(f1, 4)
+    return _clamp(round(f1, 4))
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +138,7 @@ def grade_gstr3b_filing(
     final_score = (field_score * 0.6) + (penalty_score * 0.3) + (time_score * 0.1)
     """
     if agent_payload is None:
-        return 0.0
+        return _SCORE_MIN
 
     # --- Field accuracy ---
     field_scores = []
@@ -163,7 +171,7 @@ def grade_gstr3b_filing(
         time_score = 0.0
 
     final = (field_score * 0.6) + (penalty_score * 0.3) + (time_score * 0.1)
-    return round(min(final, 1.0), 4)
+    return _clamp(round(final, 4))
 
 
 # ---------------------------------------------------------------------------
