@@ -15,9 +15,6 @@ from .data_generator import (
     compute_ground_truth_gstr3b,
 )
 from .graders import (
-    reward_classify_invoice,
-    reward_itc_decision,
-    reward_compute_liability,
     reward_file_return,
     grade_invoice_classifier,
     grade_itc_reconciliation,
@@ -25,6 +22,40 @@ from .graders import (
     _field_accuracy,  # BUG-14 fix: single canonical implementation
     _SCORE_MIN,
 )
+
+# Step-level reward helpers (kept here, not in graders.py, so graders.py
+# only exports functions that return values strictly within (0, 1)).
+
+def reward_classify_invoice(correct_type: bool, correct_hsn: bool) -> float:
+    if correct_type and correct_hsn:
+        return 0.15
+    elif correct_type:
+        return 0.05
+    return -0.05
+
+
+def reward_itc_decision(action_type: str, correct_decision: str) -> float:
+    if correct_decision == "flag":
+        if action_type == "flag_for_review":
+            return 0.20
+        elif action_type == "reject_itc":
+            return 0.05
+        return -0.30
+    if action_type == "flag_for_review":
+        return 0.05
+    agent_accept  = action_type == "accept_itc"
+    should_accept = correct_decision == "accept"
+    if agent_accept and should_accept:
+        return 0.20
+    elif not agent_accept and not should_accept:
+        return 0.20
+    elif agent_accept and not should_accept:
+        return -0.30
+    return -0.15
+
+
+def reward_compute_liability(within_tolerance: bool) -> float:
+    return 0.30 if within_tolerance else -0.10
 
 VALID_ACTION_TYPES = {
     "classify_invoice",

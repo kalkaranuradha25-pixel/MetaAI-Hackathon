@@ -170,47 +170,8 @@ def grade_gstr3b_filing(
 
 
 # ---------------------------------------------------------------------------
-# Reward helpers used by the environment per step
+# Per-step filing reward (must stay in (0, 1) for hackathon validator)
 # ---------------------------------------------------------------------------
-
-def reward_classify_invoice(correct_type: bool, correct_hsn: bool) -> float:
-    if correct_type and correct_hsn:
-        return 0.15
-    elif correct_type:
-        return 0.05
-    return -0.05
-
-
-def reward_itc_decision(action_type: str, correct_decision: str) -> float:
-    """
-    action_type:      "accept_itc" | "reject_itc" | "flag_for_review"
-    correct_decision: "accept"     | "reject"      | "flag"
-    """
-    if correct_decision == "flag":
-        if action_type == "flag_for_review":
-            return 0.20
-        elif action_type == "reject_itc":
-            return 0.05
-        return -0.30
-
-    if action_type == "flag_for_review":
-        return 0.05
-
-    agent_accept  = action_type == "accept_itc"
-    should_accept = correct_decision == "accept"
-
-    if agent_accept and should_accept:
-        return 0.20
-    elif not agent_accept and not should_accept:
-        return 0.20
-    elif agent_accept and not should_accept:
-        return -0.30
-    return -0.15
-
-
-def reward_compute_liability(within_tolerance: bool) -> float:
-    return 0.30 if within_tolerance else -0.10
-
 
 def reward_file_return(field_accuracy: float) -> float:
     """Per-step filing reward — clamped so obs.reward is never exactly 0 or 1."""
