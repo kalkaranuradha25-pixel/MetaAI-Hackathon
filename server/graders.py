@@ -56,21 +56,28 @@ def grade_itc_reconciliation(
     """
     Treat "accept" as the positive class for invoices that should be accepted.
     F1 = 2 * precision * recall / (precision + recall)
+    correct_decision is "accept", "reject", or "flag" (value_mismatch invoices).
     """
     tp = fp = fn = 0
 
     for item in ground_truth_itc:
         inv_id = item["invoice_id"]
-        correct = item["correct_decision"]   # "accept" or "reject"
+        correct = item["correct_decision"]   # "accept", "reject", or "flag"
         agent_decision = itc_decisions.get(inv_id)  # "accepted", "rejected", "flagged", None
 
         if agent_decision is None:
-            # No decision made = missed = false negative if should accept
             if correct == "accept":
                 fn += 1
             continue
 
-        # Normalize agent decision
+        # BUG-9 follow-through: "flag" invoices — accepting them is a false positive;
+        # rejecting or flagging them is treated as a true negative (cautious, safe)
+        if correct == "flag":
+            if agent_decision == "accepted":
+                fp += 1
+            # rejected or flagged = not fp/fn for F1 purposes
+            continue
+
         agent_accept = agent_decision == "accepted"
         correct_accept = correct == "accept"
 
@@ -80,9 +87,15 @@ def grade_itc_reconciliation(
             fp += 1
         elif correct_accept and not agent_accept:
             fn += 1
-        # True negative (correctly rejected) doesn't factor into F1 numerator
+        # True negative (correctly rejected/flagged) doesn't factor into F1 numerator
 
-    if (tp + fp) == 0 or (tp + fn) == 0:
+    # BUG-12 fix: when there are no positive cases (tp+fn==0), the correct answer
+    # is to accept nothing — return 1.0 if agent accepted nothing (fp==0), else 0.0
+    if tp + fn == 0:
+        return 1.0 if fp == 0 else 0.0
+
+    if tp + fp == 0:
+        # Has positives to find but never accepted anything — recall = 0
         return 0.0
 
     precision = tp / (tp + fp)
@@ -138,10 +151,14 @@ def grade_gstr3b_filing(
     penalty_score = max(0.0, 1.0 - audit_flags * 0.1)
 
     # --- Time score ---
-    if steps_taken < 45:
+    # BUG-13 fix: avoid hardcoded 15.0; derive from max_steps so it stays correct
+    # if max_steps ever changes (threshold is always 75% of max_steps)
+    threshold = int(max_steps * 0.75)
+    window = max(max_steps - threshold, 1)
+    if steps_taken < threshold:
         time_score = 1.0
     elif steps_taken <= max_steps:
-        time_score = (max_steps - steps_taken) / 15.0
+        time_score = (max_steps - steps_taken) / window
     else:
         time_score = 0.0
 
@@ -165,10 +182,20 @@ def reward_classify_invoice(correct_type: bool, correct_hsn: bool) -> float:
 def reward_itc_decision(action_type: str, correct_decision: str) -> float:
     """
     action_type: "accept_itc" | "reject_itc" | "flag_for_review"
-    correct_decision: "accept" | "reject"
+    correct_decision: "accept" | "reject" | "flag" (value_mismatch invoices)
     """
+    # BUG-9 follow-through: align reward with the prompt rule and grader
+    # "flag" means value_mismatch — prompt says flag_for_review is correct
+    if correct_decision == "flag":
+        if action_type == "flag_for_review":
+            return 0.20   # correct decision
+        elif action_type == "reject_itc":
+            return 0.05   # cautious but not the intended action
+        else:             # accept_itc on a disputed invoice — audit risk
+            return -0.30
+
     if action_type == "flag_for_review":
-        return 0.05  # always partial credit
+        return 0.05  # safe partial credit for non-flag cases
 
     agent_accept = action_type == "accept_itc"
     should_accept = correct_decision == "accept"

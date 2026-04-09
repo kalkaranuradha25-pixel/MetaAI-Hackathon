@@ -232,18 +232,28 @@ def generate_episode(seed: int, task: str) -> dict:
     gstr_2b, mismatch_ids = generate_gstr2b(invoices, rng, cfg["num_mismatches"])
 
     # Build ground truth maps
-    ground_truth_invoices = invoices  # contains _ground_truth_* fields
-    ground_truth_itc = [
-        {
-            "invoice_id": inv["invoice_id"],
-            "correct_decision": "reject" if inv["invoice_id"] in mismatch_ids else "accept",
+    # BUG-10 fix: copy list so mutations to `invoices` don't silently corrupt grading
+    ground_truth_invoices = [dict(inv) for inv in invoices]
+
+    # BUG-9 fix: value_mismatch should be "flag" (not "reject") to match the
+    # reconciliation rules taught in the prompt and enforced by reward_itc_decision
+    ground_truth_itc = []
+    for inv in invoices:
+        inv_id = inv["invoice_id"]
+        if inv_id not in mismatch_ids:
+            correct = "accept"
+        else:
+            record = next((r for r in gstr_2b if r["invoice_id"] == inv_id), None)
+            reason = record.get("mismatch_reason") if record else None
+            correct = "flag" if reason == "value_mismatch" else "reject"
+        ground_truth_itc.append({
+            "invoice_id": inv_id,
+            "correct_decision": correct,
             "mismatch_reason": next(
-                (r["mismatch_reason"] for r in gstr_2b if r["invoice_id"] == inv["invoice_id"]),
+                (r["mismatch_reason"] for r in gstr_2b if r["invoice_id"] == inv_id),
                 None
             ),
-        }
-        for inv in invoices
-    ]
+        })
 
     return {
         "task": task,

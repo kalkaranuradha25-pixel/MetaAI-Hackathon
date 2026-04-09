@@ -22,6 +22,7 @@ from .graders import (
     grade_invoice_classifier,
     grade_itc_reconciliation,
     grade_gstr3b_filing,
+    _field_accuracy,  # BUG-14 fix: single canonical implementation
 )
 
 VALID_ACTION_TYPES = {
@@ -89,7 +90,11 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
     # step
     # ------------------------------------------------------------------
 
-    def step(self, action: GSTAction) -> GSTObservation:
+    def step(self, action) -> GSTObservation:
+        # BUG-7 fix: coerce raw dict to GSTAction (handles HTTPEnvServer JSON path)
+        if isinstance(action, dict):
+            action = GSTAction(**action)
+
         if self._done:
             return self._build_observation(reward=0.0, done=True, error="Episode already finished")
 
@@ -190,22 +195,19 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     step_reward = -0.10
                     self._last_error = "Too many invoices unprocessed for liability computation"
                 else:
-                    # BUG-4 fix: compute actual 5% tolerance check against ground truth
                     gt_payload = compute_ground_truth_gstr3b(invoices, self._accepted_itc_ids)
                     gt_net = sum(gt_payload["net_tax_liability"].values())
 
-                    # Agent's implied net = outward liability from classified invoices - accepted ITC
-                    agent_outward = sum(
-                        inv.get("igst", 0) + inv.get("cgst", 0) + inv.get("sgst", 0)
-                        for inv in invoices
-                        if self._classified_so_far.get(inv["invoice_id"], {}).get("invoice_type") in ("B2B", "B2C")
-                    )
+                    # BUG-4 fix: use ground truth outward (not agent's possibly-wrong
+                    # classifications) so misclassifications don't poison the liability check.
+                    # The agent's only controllable variable here is which ITCs they accepted.
+                    gt_outward = sum(gt_payload["outward_taxable_supplies"].values())
                     agent_itc = sum(
                         inv.get("igst", 0) + inv.get("cgst", 0) + inv.get("sgst", 0)
                         for inv in invoices
                         if inv["invoice_id"] in self._accepted_itc_ids
                     )
-                    agent_net = max(0.0, agent_outward - agent_itc)
+                    agent_net = max(0.0, gt_outward - agent_itc)
 
                     if gt_net > 0:
                         within_tolerance = abs(agent_net - gt_net) / gt_net <= 0.05
@@ -234,19 +236,18 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                 reconciled_pct = len(self._itc_decisions) / total if total > 0 else 1.0
 
                 if classified_pct < 0.5 or reconciled_pct < 0.5:
-                    # Premature filing penalty
+                    # Premature filing penalty — no late penalty on this path
                     step_reward = -0.20
                     self._last_error = "Premature filing: complete classification and reconciliation first"
                 else:
                     gt_payload = compute_ground_truth_gstr3b(invoices, self._accepted_itc_ids)
-                    # Flatten both payloads for field comparison
                     agent_vals = _flatten_payload(action.gstr_payload)
                     truth_vals = _flatten_payload(gt_payload)
 
                     all_keys = set(truth_vals.keys())
                     if all_keys:
                         field_accs = [
-                            _field_acc(agent_vals.get(k, 0.0), truth_vals[k])
+                            _field_accuracy(agent_vals.get(k, 0.0), truth_vals[k])  # BUG-14
                             for k in all_keys
                         ]
                         avg_field_acc = sum(field_accs) / len(field_accs)
@@ -256,9 +257,10 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     step_reward = reward_file_return(avg_field_acc)
                     self._final_payload = action.gstr_payload
 
-                # Late filing penalty
-                if self._current_step > 55:
-                    step_reward += -0.50
+                    # BUG-5 fix: late-filing penalty only applies to actual filings,
+                    # not premature-filing rejections
+                    if self._current_step > 55:
+                        step_reward += -0.50
 
                 self._done = True
 
@@ -322,6 +324,13 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             unclassified = [iid for iid in all_ids if iid not in self._classified_so_far]
             unreconciled = [iid for iid in all_ids if iid not in self._itc_decisions]
             pending = list(dict.fromkeys(unclassified + unreconciled))  # preserve order, dedup
+            # BUG-8 fix: when all invoices are processed guide agent to next mandatory steps
+            # so it doesn't spin on an empty list until timeout
+            if not pending and not done:
+                if not self._liability_computed:
+                    pending = ["compute_liability"]
+                else:
+                    pending = ["file_return"]
 
         # Compute accumulated ITC
         accumulated_itc = sum(
@@ -337,9 +346,12 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             if self._classified_so_far.get(inv["invoice_id"], {}).get("invoice_type") in ("B2B", "B2C")
         )
 
-        # Filing status
+        # BUG-6 fix: distinguish filed/failed/in_progress so done=True always
+        # has a consistent filing_status — "in_progress" while done=True is misleading
         if self._done and self._final_payload is not None:
             filing_status = "filed"
+        elif self._done:
+            filing_status = "failed"
         elif self._current_step > 0:
             filing_status = "in_progress"
         else:
@@ -377,7 +389,4 @@ def _flatten_payload(payload: dict, prefix: str = "") -> dict:
     return result
 
 
-def _field_acc(agent_val: float, truth_val: float) -> float:
-    if truth_val == 0.0:
-        return 1.0 if agent_val == 0.0 else 0.0
-    return max(0.0, 1.0 - abs(agent_val - truth_val) / truth_val)
+# _field_accuracy imported from graders.py — BUG-14: single canonical implementation

@@ -4,7 +4,7 @@ GSTAction, GSTObservation, GSTState inheriting from OpenEnv base types.
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from openenv.core.env_server.types import Action, Observation, State
 
 
@@ -40,6 +40,9 @@ class GSTAction(Action):
       compute_liability — calculate net tax liability (Task 3 step)
       file_return       — submit final GSTR-3B payload (terminal action)
     """
+    # BUG-2 fix: discard extra keys (e.g. "reasoning") that LLMs often append
+    model_config = ConfigDict(extra="ignore")
+
     action_type: str
     invoice_id: Optional[str] = None
     hsn_code: Optional[str] = None
