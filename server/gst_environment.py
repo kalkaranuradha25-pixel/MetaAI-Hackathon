@@ -21,6 +21,8 @@ from .graders import (
     grade_gstr3b_filing,
     _field_accuracy,  # BUG-14 fix: single canonical implementation
     _SCORE_MIN,
+    _SCORE_MAX,
+    _clamp,
 )
 
 # Step-level reward helpers (kept here, not in graders.py, so graders.py
@@ -418,7 +420,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     metadata["score"] = _SCORE_MIN
 
         return GSTObservation(
-            reward=round(reward, 2),
+            reward=round(_clamp(reward), 2),
             done=done,
             invoices=[invoice_for_agent(inv) for inv in invoices],
             gstr_2b=gstr_2b,
