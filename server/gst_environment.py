@@ -388,10 +388,9 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             if self._classified_so_far.get(inv["invoice_id"], {}).get("invoice_type") in ("B2B", "B2C")
         )
 
-        # BUG-6 fix: distinguish filed/failed/in_progress so done=True always
-        # has a consistent filing_status — "in_progress" while done=True is misleading.
-        # Task 1 (invoice_classifier) never calls file_return, so show "n/a" not "failed".
-        if self._task == "invoice_classifier":
+        # Tasks 1 & 2 never call file_return — show "n/a" instead of misleading "failed".
+        # Task 3 (full_gstr3b_filing) genuinely requires filing, so use filed/failed/in_progress.
+        if self._task in ("invoice_classifier", "itc_reconciliation"):
             filing_status = "n/a"
         elif self._done and self._final_payload is not None:
             filing_status = "filed"
