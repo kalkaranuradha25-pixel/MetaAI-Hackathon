@@ -6,9 +6,12 @@ All graders are deterministic — no randomness in scoring.
 
 from typing import Dict, List
 
-# Validator requires scores strictly in the open interval (0, 1) — never 0.0 or 1.0
-_SCORE_MIN = 1e-4          # smallest allowed score
-_SCORE_MAX = 1.0 - 1e-4   # largest allowed score
+# Validator requires scores strictly in the open interval (0, 1) — never 0.0 or 1.0.
+# Values must also survive round(..., 2) without becoming 0.00 or 1.00:
+#   1e-4 rounds to 0.00 (FAIL), 0.9999 rounds to 1.00 (FAIL)
+#   0.01  rounds to 0.01 (OK),  0.99   rounds to 0.99  (OK)
+_SCORE_MIN = 0.01
+_SCORE_MAX = 0.99
 
 
 def _clamp(score: float) -> float:
