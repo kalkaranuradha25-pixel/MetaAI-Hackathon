@@ -1085,12 +1085,13 @@ class TestLLMCriteriaCheck(unittest.TestCase):
 
     # ── rewards_str edge cases ────────────────────────────────────────────────
 
-    def test_rewards_str_is_0_00_on_empty_list(self):
+    def test_rewards_str_is_0_01_on_empty_list(self):
+        """Fallback reward must be 0.01 (strictly in (0,1)) when no steps ran."""
         env = GSTEnvironment()
         with patch.object(env, "reset", side_effect=RuntimeError("no reset")):
             lines, _ = capture_run_task(env, "invoice_classifier")
         end = next(l for l in lines if l.startswith("[END]"))
-        self.assertIn("rewards=0.00", end)
+        self.assertIn("rewards=0.01", end)
 
     def test_rewards_str_comma_separated_2dp(self):
         env = GSTEnvironment()

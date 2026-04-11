@@ -95,6 +95,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
         self._done: bool = False
         self._final_payload: Optional[dict] = None
         self._accepted_itc_ids: list = []
+        self._natural_end: bool = False  # True when task ends by processing all invoices
 
     # ------------------------------------------------------------------
     # reset
@@ -117,6 +118,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
         self._done = False
         self._final_payload = None
         self._accepted_itc_ids = []
+        self._natural_end = False
 
         return self._build_observation(reward=_SCORE_MIN, done=False)
 
@@ -303,8 +305,10 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             all_ids = [i["invoice_id"] for i in invoices]
             if self._task == "invoice_classifier" and len(self._classified_so_far) == len(all_ids):
                 self._done = True
+                self._natural_end = True
             elif self._task == "itc_reconciliation" and len(self._itc_decisions) == len(all_ids):
                 self._done = True
+                self._natural_end = True
 
         # --- Check timeout ---
         if self._current_step >= max_steps and not self._done:
@@ -388,9 +392,12 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             if self._classified_so_far.get(inv["invoice_id"], {}).get("invoice_type") in ("B2B", "B2C")
         )
 
-        # Tasks 1 & 2 never call file_return — show "n/a" instead of misleading "failed".
-        # Task 3 (full_gstr3b_filing) genuinely requires filing, so use filed/failed/in_progress.
-        if self._task in ("invoice_classifier", "itc_reconciliation"):
+        # Task 1 never files. Task 2 only shows "n/a" when it ends naturally
+        # (all ITCs reconciled) — not when file_return is explicitly rejected.
+        # Task 3 (full_gstr3b_filing) genuinely requires filing: use filed/failed/in_progress.
+        if self._task == "invoice_classifier":
+            filing_status = "n/a"
+        elif self._task == "itc_reconciliation" and self._natural_end:
             filing_status = "n/a"
         elif self._done and self._final_payload is not None:
             filing_status = "filed"

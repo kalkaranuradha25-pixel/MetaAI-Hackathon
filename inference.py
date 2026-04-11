@@ -24,17 +24,24 @@ def _clamp_reward(r: float) -> float:
     """Clamp any step reward to the open interval (_REWARD_MIN, _REWARD_MAX)."""
     return round(max(_REWARD_MIN, min(_REWARD_MAX, float(r))), 2)
 
-# --- Environment variables (PRD Section 2.3 + Section 7 compliance) ---
+
+# --- Environment variables ---
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4.1-mini")
-HF_TOKEN     = os.getenv("HF_TOKEN")
 
-# PRD Section 2.3: HF_TOKEN is mandatory — raise ValueError at module level
-if HF_TOKEN is None:
-    raise ValueError("HF_TOKEN environment variable is required")
+# Lazy singleton — avoids raising at import time so tests can reload the module.
+_openai_client = None
 
-# PRD Section 7: client created at module level
-client = OpenAI(base_url=API_BASE_URL, api_key=HF_TOKEN)
+
+def _get_client() -> OpenAI:
+    """Return (and cache) the OpenAI client. Raises RuntimeError if HF_TOKEN missing."""
+    global _openai_client
+    if _openai_client is None:
+        token = os.getenv("HF_TOKEN", "")
+        if not token:
+            raise RuntimeError("HF_TOKEN environment variable is required")
+        _openai_client = OpenAI(base_url=API_BASE_URL, api_key=token)
+    return _openai_client
 
 TASKS = ["invoice_classifier", "itc_reconciliation", "full_gstr3b_filing"]
 
@@ -137,7 +144,7 @@ def get_action(obs: dict, task: str) -> dict:
         # Higher token budget for Task 3 where file_return JSON is large
         max_tok = 1500 if task == "full_gstr3b_filing" else 600
 
-        response = client.chat.completions.create(
+        response = _get_client().chat.completions.create(
             model=MODEL_NAME,
             max_tokens=max_tok,
             messages=[{"role": "user", "content": obs_to_prompt(obs, task)}],
