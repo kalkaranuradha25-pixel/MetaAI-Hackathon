@@ -389,8 +389,11 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
         )
 
         # BUG-6 fix: distinguish filed/failed/in_progress so done=True always
-        # has a consistent filing_status — "in_progress" while done=True is misleading
-        if self._done and self._final_payload is not None:
+        # has a consistent filing_status — "in_progress" while done=True is misleading.
+        # Task 1 (invoice_classifier) never calls file_return, so show "n/a" not "failed".
+        if self._task == "invoice_classifier":
+            filing_status = "n/a"
+        elif self._done and self._final_payload is not None:
             filing_status = "filed"
         elif self._done:
             filing_status = "failed"
