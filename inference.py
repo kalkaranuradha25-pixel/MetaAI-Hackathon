@@ -15,6 +15,15 @@ import sys
 from openai import OpenAI
 from models import GSTAction
 
+# Validator requires scores strictly in the open interval (0, 1).
+_REWARD_MIN = 0.01
+_REWARD_MAX = 0.99
+
+
+def _clamp_reward(r: float) -> float:
+    """Clamp any step reward to the open interval (_REWARD_MIN, _REWARD_MAX)."""
+    return round(max(_REWARD_MIN, min(_REWARD_MAX, float(r))), 2)
+
 # --- Environment variables (PRD Section 2.3 + Section 7 compliance) ---
 API_BASE_URL = os.getenv("API_BASE_URL", "https://api.openai.com/v1")
 MODEL_NAME   = os.getenv("MODEL_NAME", "gpt-4.1-mini")
@@ -189,18 +198,18 @@ def run_task(env, task_name: str):
                 if isinstance(result, tuple):
                     obs, reward, done, info = result
                     obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-                    reward = round(float(reward), 2)
+                    reward = _clamp_reward(float(reward))
                     error = (info.get("error") or "null") if isinstance(info, dict) else "null"
                 else:
                     obs = result
                     obs_dict = obs.model_dump() if hasattr(obs, "model_dump") else dict(obs)
-                    reward = round(float(obs_dict.get("reward", 0.01)), 2)
+                    reward = _clamp_reward(float(obs_dict.get("reward", _REWARD_MIN)))
                     done = bool(obs_dict.get("done", False))
                     last_err = obs_dict.get("last_error")
                     error = last_err if last_err else "null"
 
             except Exception as exc:
-                reward = 0.01
+                reward = _REWARD_MIN
                 done = True
                 error = str(exc).replace("\n", " ")[:200]
 
@@ -217,7 +226,7 @@ def run_task(env, task_name: str):
     finally:
         threshold = TASK_THRESHOLDS.get(task_name, 0.5)
         success = sum(rewards) >= threshold
-        rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.01"
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else f"{_REWARD_MIN:.2f}"
         print(f"[END] success={str(success).lower()} steps={step} rewards={rewards_str}", flush=True)
 
 

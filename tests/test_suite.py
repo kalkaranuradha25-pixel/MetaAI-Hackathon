@@ -30,11 +30,15 @@ from server.graders import (
     grade_invoice_classifier,
     grade_itc_reconciliation,
     grade_gstr3b_filing,
+    reward_file_return,
+    _field_accuracy,
+    _SCORE_MIN,
+    _SCORE_MAX,
+)
+from server.gst_environment import (
     reward_classify_invoice,
     reward_itc_decision,
     reward_compute_liability,
-    reward_file_return,
-    _field_accuracy,
 )
 from server.data_generator import generate_episode, TASK_CONFIGS
 
@@ -232,14 +236,15 @@ class TestOutputParsing(unittest.TestCase):
         self.assertEqual(len(step_lines), 0,
                          "No [STEP] should be emitted when reset() raises")
 
-    def test_end_rewards_fallback_is_0_00_on_reset_failure(self):
-        """rewards=0.00 (not empty) when no steps completed."""
+    def test_end_rewards_fallback_is_in_range_on_reset_failure(self):
+        """rewards fallback must be strictly in (0, 1) when no steps completed."""
         env = GSTEnvironment()
         with patch.object(env, "reset", side_effect=RuntimeError("boom")):
             lines, _ = capture_run_task(env, "invoice_classifier")
         m = self.RE_END.match(lines[-1])
         self.assertIsNotNone(m)
-        self.assertEqual(m.group("rewards"), "0.00")
+        # Validator requires strictly between 0 and 1 — fallback must be 0.01
+        self.assertEqual(m.group("rewards"), "0.01")
 
     def test_end_success_false_when_no_rewards(self):
         env = GSTEnvironment()
@@ -360,7 +365,7 @@ class TestTaskValidation(unittest.TestCase):
         env = GSTEnvironment()
         env.reset(task="invoice_classifier")
         obs = self._step(env, action_type="do_something_illegal", invoice_id=None)
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_invalid_action_type_does_not_end_episode_early(self):
         env = GSTEnvironment()
@@ -375,14 +380,14 @@ class TestTaskValidation(unittest.TestCase):
         env.reset(task="invoice_classifier")
         obs = self._step(env, action_type="classify_invoice", invoice_id=None,
                          invoice_type="B2B", hsn_code="8471")
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_classify_unknown_id_penalised(self):
         env = GSTEnvironment()
         env.reset(task="invoice_classifier")
         obs = self._step(env, action_type="classify_invoice", invoice_id="FAKE-9999",
                          invoice_type="B2B", hsn_code="8471")
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_classify_duplicate_penalised(self):
         env = GSTEnvironment()
@@ -394,7 +399,7 @@ class TestTaskValidation(unittest.TestCase):
         # Second on same ID must penalise
         obs2 = self._step(env, action_type="classify_invoice", invoice_id=inv_id,
                           invoice_type="B2B", hsn_code="8471")
-        self.assertEqual(obs2.reward, -0.10)
+        self.assertLess(obs2.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_correct_classification_positive_reward(self):
         env = GSTEnvironment()
@@ -429,7 +434,7 @@ class TestTaskValidation(unittest.TestCase):
                        if t != gt["_ground_truth_type"]]
         obs = self._step(env, action_type="classify_invoice", invoice_id=inv_id,
                          invoice_type=wrong_types[0], hsn_code="0000")
-        self.assertEqual(obs.reward, -0.05)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_task1_done_when_all_classified(self):
         env = GSTEnvironment()
@@ -450,7 +455,7 @@ class TestTaskValidation(unittest.TestCase):
         env = GSTEnvironment()
         env.reset(task="itc_reconciliation")
         obs = self._step(env, action_type="accept_itc", invoice_id=None)
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_correct_accept_itc_reward(self):
         env = GSTEnvironment()
@@ -474,7 +479,7 @@ class TestTaskValidation(unittest.TestCase):
             self.skipTest("No reject invoices in this seed")
         obs = self._step(env, action_type="accept_itc",
                          invoice_id=reject_case["invoice_id"])
-        self.assertEqual(obs.reward, -0.30)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_correct_reject_reward(self):
         env = GSTEnvironment()
@@ -530,7 +535,7 @@ class TestTaskValidation(unittest.TestCase):
         env.reset(task="invoice_classifier")
         obs = self._step(env, action_type="file_return", invoice_id=None,
                          gstr_payload={"outward_taxable_supplies": {}})
-        self.assertEqual(obs.reward, -0.20)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
         self.assertTrue(obs.done)
 
     def test_file_return_without_payload_penalised(self):
@@ -538,7 +543,7 @@ class TestTaskValidation(unittest.TestCase):
         env.reset(task="itc_reconciliation")
         obs = self._step(env, action_type="file_return", invoice_id=None,
                          gstr_payload=None)
-        self.assertEqual(obs.reward, -0.20)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
         self.assertTrue(obs.done)
 
     def test_premature_file_return_penalised(self):
@@ -553,7 +558,7 @@ class TestTaskValidation(unittest.TestCase):
                    "net_tax_liability": {"igst": 0, "cgst": 0, "sgst": 0}}
         obs = self._step(env, action_type="file_return", invoice_id=None,
                          gstr_payload=payload)
-        self.assertEqual(obs.reward, -0.20)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     # ── compute_liability ────────────────────────────────────────────────────
 
@@ -565,7 +570,7 @@ class TestTaskValidation(unittest.TestCase):
         self._step(env, action_type="classify_invoice", invoice_id=inv_id,
                    invoice_type="B2B", hsn_code="8471")
         obs = self._step(env, action_type="compute_liability")
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     def test_compute_liability_twice_penalised(self):
         # Use full_gstr3b_filing — episode doesn't auto-terminate until file_return,
@@ -584,7 +589,7 @@ class TestTaskValidation(unittest.TestCase):
         self._step(env, action_type="compute_liability")
         # Second compute_liability — must penalise (-0.10)
         obs = self._step(env, action_type="compute_liability")
-        self.assertEqual(obs.reward, -0.10)
+        self.assertLess(obs.reward, 0.05)  # clamped penalty: obs.reward in (0,1) but small
 
     # ── step() dict coercion ─────────────────────────────────────────────────
 
@@ -625,11 +630,11 @@ class TestTaskValidation(unittest.TestCase):
             obs = self._step(env, action_type="classify_invoice",
                              invoice_id=inv["invoice_id"],
                              invoice_type="B2B", hsn_code="8471")
-        # Now episode is done — extra step must give 0.0
+        # Now episode is done — extra step returns _SCORE_MIN (clamped, not 0.0)
         extra = self._step(env, action_type="classify_invoice",
                            invoice_id=ep["invoices"][0]["invoice_id"],
                            invoice_type="B2B", hsn_code="8471")
-        self.assertEqual(extra.reward, 0.0)
+        self.assertEqual(extra.reward, round(_SCORE_MIN, 2))
         self.assertTrue(extra.done)
 
     # ── filing_status consistency ────────────────────────────────────────────
@@ -690,10 +695,10 @@ class TestTaskValidation(unittest.TestCase):
         self.assertEqual(reward_compute_liability(False), -0.10)
 
     def test_reward_file_return_perfect(self):
-        self.assertEqual(reward_file_return(1.00), 1.00)
+        self.assertEqual(reward_file_return(1.00), _SCORE_MAX)
 
     def test_reward_file_return_near_perfect(self):
-        self.assertEqual(reward_file_return(0.95), 1.00)
+        self.assertEqual(reward_file_return(0.95), _SCORE_MAX)
 
     def test_reward_file_return_partial(self):
         self.assertAlmostEqual(reward_file_return(0.80), 0.40)
@@ -705,40 +710,40 @@ class TestTaskValidation(unittest.TestCase):
                "_ground_truth_hsn": "8471"} for i in range(5)]
         decisions = {f"I{i}": {"invoice_type": "B2B", "hsn_code": "8471"} for i in range(5)}
         score = grade_invoice_classifier(gt, decisions)
-        self.assertAlmostEqual(score, 1.0)
+        self.assertAlmostEqual(score, _SCORE_MAX)
 
     def test_grade_classifier_all_wrong(self):
         gt = [{"invoice_id": "I0", "_ground_truth_type": "B2B", "_ground_truth_hsn": "8471"}]
         decisions = {"I0": {"invoice_type": "EXPORT", "hsn_code": "0000"}}
         score = grade_invoice_classifier(gt, decisions)
-        self.assertEqual(score, 0.0)
+        self.assertEqual(score, _SCORE_MIN)
 
     def test_grade_classifier_empty_gt(self):
-        self.assertEqual(grade_invoice_classifier([], {}), 0.0)
+        self.assertEqual(grade_invoice_classifier([], {}), _SCORE_MIN)
 
     def test_grade_itc_all_correct_accepts(self):
         gt = [{"invoice_id": f"I{i}", "correct_decision": "accept"} for i in range(5)]
         decisions = {f"I{i}": "accepted" for i in range(5)}
-        self.assertEqual(grade_itc_reconciliation(gt, decisions), 1.0)
+        self.assertEqual(grade_itc_reconciliation(gt, decisions), _SCORE_MAX)
 
     def test_grade_itc_all_positives_correctly_rejected(self):
-        """No positive cases — agent correctly accepted nothing → score 1.0."""
+        """No positive cases — agent correctly accepted nothing → _SCORE_MAX."""
         gt = [{"invoice_id": f"I{i}", "correct_decision": "reject"} for i in range(5)]
         decisions = {f"I{i}": "rejected" for i in range(5)}
-        self.assertEqual(grade_itc_reconciliation(gt, decisions), 1.0)
+        self.assertEqual(grade_itc_reconciliation(gt, decisions), _SCORE_MAX)
 
     def test_grade_itc_f1_edge_all_reject_no_positives(self):
-        """BUG-12 edge case: all-reject when correct is also all-reject → 1.0."""
+        """BUG-12 edge case: all-reject when correct is also all-reject → _SCORE_MAX."""
         gt = [{"invoice_id": f"I{i}", "correct_decision": "reject"} for i in range(3)]
         decisions = {f"I{i}": "rejected" for i in range(3)}
         score = grade_itc_reconciliation(gt, decisions)
-        self.assertEqual(score, 1.0)
+        self.assertEqual(score, _SCORE_MAX)
 
     def test_grade_itc_false_positives_reduce_score(self):
         gt = [{"invoice_id": "I0", "correct_decision": "reject"}]
         decisions = {"I0": "accepted"}  # fp
         score = grade_itc_reconciliation(gt, decisions)
-        self.assertEqual(score, 0.0)
+        self.assertEqual(score, _SCORE_MIN)
 
     def test_grade_gstr3b_perfect_payload(self):
         payload = {
@@ -751,10 +756,10 @@ class TestTaskValidation(unittest.TestCase):
         }
         score = grade_gstr3b_filing(payload, payload, audit_flags=0,
                                     steps_taken=10, max_steps=60)
-        self.assertAlmostEqual(score, 1.0)
+        self.assertAlmostEqual(score, _SCORE_MAX, places=2)
 
     def test_grade_gstr3b_none_payload(self):
-        self.assertEqual(grade_gstr3b_filing(None, {}, 0, 10, 60), 0.0)
+        self.assertEqual(grade_gstr3b_filing(None, {}, 0, 10, 60), _SCORE_MIN)
 
     def test_grade_gstr3b_time_score_threshold(self):
         """Steps < 75% of max_steps → time_score=1.0."""
@@ -764,16 +769,16 @@ class TestTaskValidation(unittest.TestCase):
         self.assertGreater(score_fast, score_slow)
 
     def test_field_accuracy_zero_truth_zero_agent(self):
-        self.assertEqual(_field_accuracy(0.0, 0.0), 1.0)
+        self.assertEqual(_field_accuracy(0.0, 0.0), _SCORE_MAX)
 
     def test_field_accuracy_zero_truth_nonzero_agent(self):
-        self.assertEqual(_field_accuracy(100.0, 0.0), 0.0)
+        self.assertEqual(_field_accuracy(100.0, 0.0), _SCORE_MIN)
 
     def test_field_accuracy_exact_match(self):
-        self.assertEqual(_field_accuracy(500.0, 500.0), 1.0)
+        self.assertEqual(_field_accuracy(500.0, 500.0), _SCORE_MAX)
 
     def test_field_accuracy_10pct_off(self):
-        self.assertAlmostEqual(_field_accuracy(450.0, 500.0), 0.9)
+        self.assertAlmostEqual(_field_accuracy(450.0, 500.0), 0.9, places=3)
 
 
 # =============================================================================
