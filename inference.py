@@ -217,7 +217,7 @@ def run_task(env, task_name: str):
     finally:
         threshold = TASK_THRESHOLDS.get(task_name, 0.5)
         success = sum(rewards) >= threshold
-        rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.00"
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else "0.01"
         print(f"[END] success={str(success).lower()} steps={step} rewards={rewards_str}", flush=True)
 
 

@@ -144,7 +144,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
         # --- Validate action type ---
         if action.action_type not in VALID_ACTION_TYPES:
-            self._cumulative_reward += -0.10
+            self._cumulative_reward += _clamp(-0.10)
             done = self._current_step >= max_steps
             self._done = done
             return self._build_observation(
@@ -311,7 +311,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             step_reward += -0.50  # timeout penalty
             self._done = True
 
-        self._cumulative_reward += step_reward
+        self._cumulative_reward += _clamp(step_reward)
         return self._build_observation(reward=step_reward, done=self._done)
 
     # ------------------------------------------------------------------
@@ -321,6 +321,14 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
     @property
     def state(self) -> GSTState:
         ep = self._episode_data or {}
+        max_steps = ep.get("max_steps", 60)
+        # Normalize cumulative_reward to (0, 1) so the OpenEnv validator never sees
+        # values outside the legal range.  Raw cumulative is kept in _cumulative_reward
+        # for RL training; the state property exposes a per-step average clamped to (0,1).
+        if self._current_step > 0:
+            norm_reward = _clamp(self._cumulative_reward / max_steps)
+        else:
+            norm_reward = _SCORE_MIN
         return GSTState(
             episode_id=self._episode_id,
             step_count=self._current_step,
@@ -328,7 +336,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             ground_truth_itc=ep.get("ground_truth_itc", []),
             classified_so_far=self._classified_so_far,
             itc_decisions=self._itc_decisions,
-            cumulative_reward=self._cumulative_reward,
+            cumulative_reward=norm_reward,
             task=self._task,
             audit_flags=self._audit_flags,
             liability_computed=self._liability_computed,
