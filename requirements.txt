@@ -1,7 +1,6 @@
 openenv-core
 openai
 pydantic>=2.0
-faker
 fastapi
 uvicorn[standard]
 httpx

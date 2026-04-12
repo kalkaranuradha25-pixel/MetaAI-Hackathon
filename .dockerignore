@@ -1,0 +1,22 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Training artefacts — not needed by the server
+train.py
+trained_*.pt
+
+# Tests
+tests/
+
+# Dev tooling
+.git/
+.gitignore
+*.md
+uv.lock
+
+# Misc
+*.log
+.env
