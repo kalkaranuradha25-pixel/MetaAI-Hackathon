@@ -446,6 +446,11 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             task_score = _SCORE_MIN
             metadata["score"] = task_score
 
+        # 🔥 HARD SAFETY: clamp task_score before returning to prevent 1.0 or 0.0
+        if task_score is not None:
+            task_score = _clamp(task_score)
+            metadata["score"] = task_score
+
         return GSTObservation(
             reward=round(_clamp(reward), 2),
             done=done,

@@ -33,7 +33,7 @@ def grade_invoice_classifier(
     hsn_acc = correct_hsn / total
 
     score = (type_acc * 2.0 + hsn_acc) / 3.0
-    return round(_clamp(score), 6)
+    return _clamp(round(score, 6))
 
 
 # ---------------- TASK 2 ----------------
@@ -69,20 +69,23 @@ def grade_itc_reconciliation(
         elif correct_accept and not agent_accept:
             fn += 1
 
+    # Edge cases
     if tp + fn == 0:
-        return _SCORE_MAX if fp == 0 else _SCORE_MIN
+        score = _SCORE_MAX if fp == 0 else _SCORE_MIN
+        return _clamp(round(score, 6))   # 🔥 FIX
 
     if tp + fp == 0:
-        return _SCORE_MIN
+        return _clamp(round(_SCORE_MIN, 6))
 
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
 
     if precision + recall == 0:
-        return _SCORE_MIN
+        return _clamp(round(_SCORE_MIN, 6))
 
     f1 = 2 * precision * recall / (precision + recall)
-    return round(_clamp(f1), 6)
+
+    return _clamp(round(f1, 6))   # 🔥 FINAL FIX
 
 
 # ---------------- TASK 3 ----------------
@@ -129,7 +132,7 @@ def grade_gstr3b_filing(
         time_score = _clamp((max_steps - steps_taken) / max(1, max_steps - threshold))
 
     final = (field_score * 0.6) + (penalty_score * 0.3) + (time_score * 0.1)
-    return round(_clamp(final), 6)
+    return _clamp(round(final, 6))
 
 
 def reward_file_return(field_accuracy: float) -> float:
