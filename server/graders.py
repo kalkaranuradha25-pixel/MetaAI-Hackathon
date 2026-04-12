@@ -33,6 +33,11 @@ def grade_invoice_classifier(
     hsn_acc = correct_hsn / total
 
     score = (type_acc * 2.0 + hsn_acc) / 3.0
+    
+    # 🔥 prevent exact 1.0
+    if score >= 1.0:
+        score = 0.999
+    
     return _clamp(round(score, 6))
 
 
