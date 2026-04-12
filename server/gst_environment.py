@@ -32,8 +32,8 @@ def reward_classify_invoice(correct_type: bool, correct_hsn: bool) -> float:
     if correct_type and correct_hsn:
         return 0.15
     elif correct_type:
-        return 0.05
-    return -0.05
+        return 0.08
+    return 0.02
 
 
 def reward_itc_decision(action_type: str, correct_decision: str) -> float:
@@ -41,23 +41,22 @@ def reward_itc_decision(action_type: str, correct_decision: str) -> float:
         if action_type == "flag_for_review":
             return 0.20
         elif action_type == "reject_itc":
-            return 0.05
-        return -0.30
+            return 0.08
+        return 0.02
+
     if action_type == "flag_for_review":
         return 0.05
-    agent_accept  = action_type == "accept_itc"
+
+    agent_accept = action_type == "accept_itc"
     should_accept = correct_decision == "accept"
-    if agent_accept and should_accept:
+
+    if agent_accept == should_accept:
         return 0.20
-    elif not agent_accept and not should_accept:
-        return 0.20
-    elif agent_accept and not should_accept:
-        return -0.30
-    return -0.15
+    return 0.02
 
 
 def reward_compute_liability(within_tolerance: bool) -> float:
-    return 0.30 if within_tolerance else -0.10
+    return 0.30 if within_tolerance else 0.05
 
 VALID_ACTION_TYPES = {
     "classify_invoice",
@@ -146,30 +145,29 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
         # --- Validate action type ---
         if action.action_type not in VALID_ACTION_TYPES:
-            self._cumulative_reward += _clamp(-0.10)
+            self._cumulative_reward += 0.02
             done = self._current_step >= max_steps
             self._done = done
             return self._build_observation(
-                reward=-0.10, done=done,
+                reward=0.02, done=done,
                 error=f"Invalid action_type: {action.action_type}"
             )
 
         step_reward = 0.0
 
-        # --- classify_invoice ---
         if action.action_type == "classify_invoice":
             inv_id = action.invoice_id
             if inv_id is None:
-                step_reward = -0.10
+                step_reward = 0.02
                 self._last_error = "classify_invoice requires invoice_id"
             elif inv_id in self._classified_so_far:
                 # Repeated action penalty
-                step_reward = -0.10
+                step_reward = 0.02
                 self._last_error = f"Already classified {inv_id}"
             else:
                 gt = next((i for i in ground_truth_invoices if i["invoice_id"] == inv_id), None)
                 if gt is None:
-                    step_reward = -0.10
+                    step_reward = 0.02
                     self._last_error = f"Unknown invoice_id: {inv_id}"
                 else:
                     correct_type = action.invoice_type == gt["_ground_truth_type"]
@@ -180,19 +178,18 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                         "hsn_code": action.hsn_code,
                     }
 
-        # --- accept_itc / reject_itc / flag_for_review ---
         elif action.action_type in ("accept_itc", "reject_itc", "flag_for_review"):
             inv_id = action.invoice_id
             if inv_id is None:
-                step_reward = -0.10
+                step_reward = 0.02
                 self._last_error = f"{action.action_type} requires invoice_id"
             elif inv_id in self._itc_decisions:
-                step_reward = -0.10
+                step_reward = 0.02
                 self._last_error = f"Already decided ITC for {inv_id}"
             else:
                 gt_itc = next((i for i in ground_truth_itc if i["invoice_id"] == inv_id), None)
                 if gt_itc is None:
-                    step_reward = -0.10
+                    step_reward = 0.02
                     self._last_error = f"Unknown invoice_id: {inv_id}"
                 else:
                     step_reward = reward_itc_decision(action.action_type, gt_itc["correct_decision"])
@@ -210,10 +207,9 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     if action.action_type == "accept_itc":
                         self._accepted_itc_ids.append(inv_id)
 
-        # --- compute_liability ---
         elif action.action_type == "compute_liability":
             if self._liability_computed:
-                step_reward = -0.10
+                step_reward = 0.02
                 self._last_error = "compute_liability already called"
             else:
                 # Check if classification + reconciliation is reasonably complete
@@ -224,11 +220,11 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
                 # BUG-8 fix: guard against empty invoice list
                 if total == 0:
-                    step_reward = -0.10
+                    step_reward = 0.02
                     self._last_error = "No invoices in episode"
                 # Tolerance: at least 70% done before computing
                 elif classified / total < 0.7 or (self._task != "invoice_classifier" and reconciled / total < 0.7):
-                    step_reward = -0.10
+                    step_reward = 0.02
                     self._last_error = "Too many invoices unprocessed for liability computation"
                 else:
                     gt_payload = compute_ground_truth_gstr3b(invoices, self._accepted_itc_ids)
@@ -256,11 +252,11 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
         # --- file_return ---
         elif action.action_type == "file_return":
             if self._task == "invoice_classifier":
-                step_reward = -0.20
+                step_reward = 0.02
                 self._last_error = "file_return not valid for invoice_classifier task"
                 self._done = True
             elif action.gstr_payload is None:
-                step_reward = -0.20
+                step_reward = 0.02
                 self._last_error = "file_return requires gstr_payload"
                 self._done = True
             else:
@@ -273,7 +269,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
                 if classified_pct < 0.5 or reconciled_pct < 0.5:
                     # Premature filing penalty — no late penalty on this path
-                    step_reward = -0.20
+                    step_reward = 0.02
                     self._last_error = "Premature filing: complete classification and reconciliation first"
                 else:
                     gt_payload = compute_ground_truth_gstr3b(invoices, self._accepted_itc_ids)
@@ -296,7 +292,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     # BUG-5 fix: late-filing penalty only applies to actual filings,
                     # not premature-filing rejections
                     if self._current_step > 55:
-                        step_reward += -0.50
+                        step_reward += 0.02
 
                 self._done = True
 
@@ -312,7 +308,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
         # --- Check timeout ---
         if self._current_step >= max_steps and not self._done:
-            step_reward += -0.50  # timeout penalty
+            step_reward += 0.02  # timeout penalty
             self._done = True
 
         self._cumulative_reward += _clamp(step_reward)
@@ -441,6 +437,13 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             else:
                 # Unknown task — still provide a valid score rather than leaving it unset.
                 task_score = _SCORE_MIN
+            if task_score is None:
+                task_score = _SCORE_MIN
+            metadata["score"] = task_score
+
+        # Safety fix: ensure task_score is set when done
+        if done and task_score is None:
+            task_score = _SCORE_MIN
             metadata["score"] = task_score
 
         return GSTObservation(
