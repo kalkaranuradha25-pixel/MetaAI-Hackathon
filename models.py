@@ -65,6 +65,7 @@ class GSTObservation(Observation):
     pending_actions: List[str]    # invoice IDs not yet actioned
     filing_status: str            # "not_started" | "in_progress" | "filed"
     last_error: Optional[str] = None  # error message from last step, or None
+    score: Optional[float] = None     # terminal task score strictly in (0, 1); set only when done=True
 
 
 class GSTState(State):

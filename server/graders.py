@@ -50,7 +50,11 @@ def grade_invoice_classifier(
         if agent_decision.get("hsn_code") == gt_hsn:
             correct_hsn += 1
 
-    score = (correct_types / total) + (correct_hsn / total) * 0.5
+    # Weighted mean: type accuracy (weight 2) + HSN accuracy (weight 1), normalised to [0, 1].
+    # Formula is naturally bounded in [0, 1] — no raw score can exceed 1.0.
+    type_acc = correct_types / total
+    hsn_acc  = correct_hsn / total
+    score = (type_acc * 2.0 + hsn_acc) / 3.0
     return _clamp(round(score, 6))
 
 

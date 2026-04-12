@@ -410,18 +410,21 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
 
         err = error or self._last_error
 
-        # Compute final task score when the episode ends so validators that read
-        # obs.metadata["score"] get a value strictly within (0, 1).
+        # Compute final task score when the episode ends.
+        # The score is placed in BOTH metadata["score"] (Python API) and obs.score
+        # (HTTP/WebSocket response field) so all validator paths can read it.
+        # Every code path guarantees a value strictly within (0, 1).
         metadata: dict = {}
+        task_score: Optional[float] = None
         if done and self._episode_data is not None:
             gt_invoices = self._episode_data.get("ground_truth_invoices", [])
             gt_itc      = self._episode_data.get("ground_truth_itc", [])
             if self._task == "invoice_classifier":
-                metadata["score"] = grade_invoice_classifier(
+                task_score = grade_invoice_classifier(
                     gt_invoices, self._classified_so_far
                 )
             elif self._task == "itc_reconciliation":
-                metadata["score"] = grade_itc_reconciliation(
+                task_score = grade_itc_reconciliation(
                     gt_itc, self._itc_decisions
                 )
             elif self._task == "full_gstr3b_filing":
@@ -429,12 +432,16 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
                     gt_payload = compute_ground_truth_gstr3b(
                         invoices, self._accepted_itc_ids
                     )
-                    metadata["score"] = grade_gstr3b_filing(
+                    task_score = grade_gstr3b_filing(
                         self._final_payload, gt_payload,
                         self._audit_flags, self._current_step, max_steps,
                     )
                 else:
-                    metadata["score"] = _SCORE_MIN
+                    task_score = _SCORE_MIN
+            else:
+                # Unknown task — still provide a valid score rather than leaving it unset.
+                task_score = _SCORE_MIN
+            metadata["score"] = task_score
 
         return GSTObservation(
             reward=round(_clamp(reward), 2),
@@ -450,6 +457,7 @@ class GSTEnvironment(Environment[GSTAction, GSTObservation, GSTState]):
             filing_status=filing_status,
             last_error=err,
             metadata=metadata,
+            score=task_score,
         )
 
 
